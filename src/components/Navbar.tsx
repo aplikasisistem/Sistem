@@ -13,7 +13,9 @@ import {
   Clock, 
   AlertCircle,
   Tag,
-  FileText
+  FileText,
+  Cloud,
+  CloudOff
 } from 'lucide-react';
 import { formatRupiah } from '../utils/formatters';
 
@@ -28,7 +30,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setCurrentTab = (_tab: string) => {},
   onOpenShiftModal = () => {}
 }) => {
-  const { currentUser, logout, currentShift } = useStore();
+  const { currentUser, logout, currentShift, isCloudConnected } = useStore();
 
   if (!currentUser) return null;
 
@@ -58,12 +60,32 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Store className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-base sm:text-lg font-black tracking-tight text-slate-900 leading-none">
                   ALUNK STORE
                 </span>
                 <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full border ${badge.bg}`}>
                   {badge.label}
+                </span>
+                <span
+                  title={isCloudConnected ? 'Database Cloud Terhubung Realtime' : 'Mode Offline / Memuat Cloud'}
+                  className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all ${
+                    isCloudConnected
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                  }`}
+                >
+                  {isCloudConnected ? (
+                    <>
+                      <Cloud className="w-3 h-3 text-emerald-600 animate-pulse" />
+                      <span>Cloud Realtime</span>
+                    </>
+                  ) : (
+                    <>
+                      <CloudOff className="w-3 h-3 text-amber-600" />
+                      <span>Offline / Syncing</span>
+                    </>
+                  )}
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 hidden sm:block mt-0.5">

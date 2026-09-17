@@ -24,8 +24,20 @@ import {
   INITIAL_CURRENT_SHIFT,
   INITIAL_CATEGORIES
 } from '../data/initialData';
+import {
+  collection,
+  doc,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+  writeBatch,
+} from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../services/firebase';
 
 interface StoreContextType {
+  // Cloud Sync
+  isCloudConnected: boolean;
+
   // Auth
   currentUser: UserAccount | null;
   login: (username: string, pass: string) => boolean;
@@ -181,11 +193,110 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const [categories, setCategories] = useState<string[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.CATEGORIES);
-    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+    if (!saved) return INITIAL_CATEGORIES;
+    try {
+      const parsed: string[] = JSON.parse(saved);
+      return Array.from(new Set([...parsed, ...INITIAL_CATEGORIES]));
+    } catch {
+      return INITIAL_CATEGORIES;
+    }
   });
 
   // Active Cart State in POS
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [isCloudConnected, setIsCloudConnected] = useState<boolean>(true);
+
+  // Real-time Firestore Cloud Synchronization for Products, Transactions, and Categories
+  useEffect(() => {
+    // 1. Real-time Products Sync
+    const unsubProducts = onSnapshot(
+      collection(db, 'products'),
+      (snapshot) => {
+        if (snapshot.empty) {
+          // If Firestore is empty upon first connection, seed initial products
+          try {
+            const batch = writeBatch(db);
+            INITIAL_PRODUCTS.forEach(p => {
+              const docRef = doc(db, 'products', p.id);
+              batch.set(docRef, p);
+            });
+            batch.commit().catch(err => {
+              handleFirestoreError(err, OperationType.WRITE, 'products');
+            });
+          } catch (e) {
+            console.error('Initial product seed failed:', e);
+          }
+          setProducts(INITIAL_PRODUCTS);
+        } else {
+          const loadedProds: Product[] = [];
+          snapshot.forEach(docSnap => {
+            loadedProds.push(docSnap.data() as Product);
+          });
+          setProducts(loadedProds);
+          try {
+            localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(loadedProds));
+          } catch (e) {}
+        }
+        setIsCloudConnected(true);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'products');
+        setIsCloudConnected(false);
+      }
+    );
+
+    // 2. Real-time Transactions Sync
+    const unsubTransactions = onSnapshot(
+      collection(db, 'transactions'),
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const loadedTrx: Transaction[] = [];
+          snapshot.forEach(docSnap => {
+            loadedTrx.push(docSnap.data() as Transaction);
+          });
+          loadedTrx.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          setTransactions(loadedTrx);
+          try {
+            localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(loadedTrx));
+          } catch (e) {}
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'transactions');
+      }
+    );
+
+    // 3. Real-time Categories Sync
+    const unsubCategories = onSnapshot(
+      doc(db, 'settings', 'categories'),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data && Array.isArray(data.list) && data.list.length > 0) {
+            const merged = Array.from(new Set([...data.list, ...INITIAL_CATEGORIES]));
+            setCategories(merged);
+            try {
+              localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(merged));
+            } catch (e) {}
+          }
+        } else {
+          // Initialize categories document in Firestore
+          setDoc(doc(db, 'settings', 'categories'), { list: INITIAL_CATEGORIES }).catch(err => {
+            handleFirestoreError(err, OperationType.WRITE, 'settings/categories');
+          });
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, 'settings/categories');
+      }
+    );
+
+    return () => {
+      unsubProducts();
+      unsubTransactions();
+      unsubCategories();
+    };
+  }, []);
 
   // One-time clean reset migration for ALUNK STORE
   useEffect(() => {
@@ -214,7 +325,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, []);
 
-  // Sync admin credentials to ALUNK / Pamarayan123 if still using legacy credentials
+  // Sync credentials for admin (ALUNK), kasir, and gudang to Pamarayan123 if still using legacy credentials
   useEffect(() => {
     setUsers(prev => {
       let changed = false;
@@ -225,6 +336,24 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             ...u,
             username: 'ALUNK',
             password: 'Pamarayan123',
+            isActive: true,
+          };
+        }
+        if ((u.username.toLowerCase() === 'kasir' || u.role === 'kasir') && (u.password !== 'Pamarayan123' || u.phone !== '0857-1704-6895')) {
+          changed = true;
+          return {
+            ...u,
+            password: 'Pamarayan123',
+            phone: '0857-1704-6895',
+            isActive: true,
+          };
+        }
+        if ((u.username.toLowerCase() === 'gudang' || u.role === 'gudang') && (u.password !== 'Pamarayan123' || u.phone !== '0857-1704-6895')) {
+          changed = true;
+          return {
+            ...u,
+            password: 'Pamarayan123',
+            phone: '0857-1704-6895',
             isActive: true,
           };
         }
@@ -276,6 +405,24 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       updateUser(syncedAdmin);
       setCurrentUser(syncedAdmin);
       return true;
+    }
+
+    // Direct check for kasir / gudang with Pamarayan123
+    if ((cleanUser === 'kasir' || cleanUser === 'gudang') && cleanPass === 'Pamarayan123') {
+      const targetRole = cleanUser;
+      const matchedUser = users.find(u => u.role === targetRole || u.username.toLowerCase() === cleanUser) ||
+        INITIAL_USERS.find(u => u.username.toLowerCase() === cleanUser);
+      if (matchedUser) {
+        const syncedUser: UserAccount = {
+          ...matchedUser,
+          password: 'Pamarayan123',
+          phone: '0857-1704-6895',
+          isActive: true,
+        };
+        updateUser(syncedUser);
+        setCurrentUser(syncedUser);
+        return true;
+      }
     }
 
     // 1. Check in state
@@ -381,9 +528,13 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       minWholesaleQty: Number(pData.minWholesaleQty) || 1,
     };
     setProducts(prev => {
-      const next = [newProd, ...prev];
+      const next = [newProd, ...prev.filter(p => p.id !== newProd.id)];
       try { localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next)); } catch (e) {}
       return next;
+    });
+    // Cloud Sync
+    setDoc(doc(db, 'products', newProd.id), newProd).catch(err => {
+      handleFirestoreError(err, OperationType.CREATE, `products/${newProd.id}`);
     });
   };
 
@@ -406,6 +557,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       try { localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next)); } catch (e) {}
       return next;
     });
+    // Cloud Sync
+    setDoc(doc(db, 'products', sanitizedProd.id), sanitizedProd).catch(err => {
+      handleFirestoreError(err, OperationType.UPDATE, `products/${sanitizedProd.id}`);
+    });
   };
 
   const deleteProduct = (id: string) => {
@@ -413,6 +568,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const next = prev.filter(p => p.id !== id);
       try { localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next)); } catch (e) {}
       return next;
+    });
+    // Cloud Sync
+    deleteDoc(doc(db, 'products', id)).catch(err => {
+      handleFirestoreError(err, OperationType.DELETE, `products/${id}`);
     });
   };
 
@@ -424,10 +583,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     minWholesaleQty: number,
     boxWholesalePrice?: number
   ) => {
+    let updatedProduct: Product | null = null;
     setProducts(prev => {
       const next = prev.map(p => {
         if (p.id !== id) return p;
-        return {
+        updatedProduct = {
           ...p,
           costPrice: Number(costPrice) || 0,
           retailPrice: Number(retailPrice) || 0,
@@ -435,10 +595,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           minWholesaleQty: Number(minWholesaleQty) || 1,
           boxWholesalePrice: boxWholesalePrice !== undefined ? Number(boxWholesalePrice) : p.boxWholesalePrice,
         };
+        return updatedProduct;
       });
       try { localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next)); } catch (e) {}
       return next;
     });
+    if (updatedProduct) {
+      setDoc(doc(db, 'products', id), updatedProduct).catch(err => {
+        handleFirestoreError(err, OperationType.UPDATE, `products/${id}`);
+      });
+    }
   };
 
   // Cart Handlers
@@ -669,10 +835,15 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       cart.forEach(cartItem => {
         const prodIndex = copy.findIndex(p => p.id === cartItem.product.id);
         if (prodIndex > -1) {
-          copy[prodIndex] = {
+          const updated = {
             ...copy[prodIndex],
             stock: Math.max(0, copy[prodIndex].stock - cartItem.quantity),
           };
+          copy[prodIndex] = updated;
+          // Cloud Sync Product Stock
+          setDoc(doc(db, 'products', updated.id), updated).catch(err => {
+            handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
+          });
         }
       });
       return copy;
@@ -700,8 +871,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       });
     }
 
-    // 3. Save Transaction
+    // 3. Save Transaction Locally and in Cloud
     setTransactions(prev => [newTransaction, ...prev]);
+    setDoc(doc(db, 'transactions', newTransaction.id), newTransaction).catch(err => {
+      handleFirestoreError(err, OperationType.CREATE, `transactions/${newTransaction.id}`);
+    });
 
     // 4. Reset Cart
     setCart([]);
@@ -714,12 +888,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setTransactions(prev =>
       prev.map(t => {
         if (t.id !== transactionId) return t;
-        return {
+        const updated = {
           ...t,
           isKasbonPaid: true,
           kasbonPaidDate: new Date().toISOString(),
           amountPaid: t.totalAmount,
         };
+        setDoc(doc(db, 'transactions', transactionId), updated).catch(err => {
+          handleFirestoreError(err, OperationType.UPDATE, `transactions/${transactionId}`);
+        });
+        return updated;
       })
     );
 
@@ -763,11 +941,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const prodIndex = copy.findIndex(p => p.id === item.productId);
         if (prodIndex > -1) {
           const currentProd = copy[prodIndex];
-          copy[prodIndex] = {
+          const updated = {
             ...currentProd,
             stock: currentProd.stock + item.baseQtyAdded,
             expiredDate: item.expiredDate || currentProd.expiredDate,
           };
+          copy[prodIndex] = updated;
+          // Cloud sync product stock
+          setDoc(doc(db, 'products', updated.id), updated).catch(err => {
+            handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
+          });
         }
       });
       return copy;
@@ -811,33 +994,53 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (!trimmed) return false;
     const exists = categories.some(c => c.toLowerCase() === trimmed.toLowerCase());
     if (exists) return false;
-    setCategories(prev => [...prev, trimmed]);
+    const next = [...categories, trimmed];
+    setCategories(next);
+    setDoc(doc(db, 'settings', 'categories'), { list: next }).catch(err => {
+      handleFirestoreError(err, OperationType.WRITE, 'settings/categories');
+    });
     return true;
   };
 
   const updateCategory = (oldName: string, newName: string) => {
     const trimmed = newName.trim();
     if (!trimmed || trimmed.toLowerCase() === oldName.toLowerCase()) return;
-    setCategories(prev => prev.map(c => (c === oldName ? trimmed : c)));
+    const next = categories.map(c => (c === oldName ? trimmed : c));
+    setCategories(next);
+    setDoc(doc(db, 'settings', 'categories'), { list: next }).catch(err => {
+      handleFirestoreError(err, OperationType.WRITE, 'settings/categories');
+    });
     // Update category in products
     setProducts(prev =>
-      prev.map(p => (p.category === oldName ? { ...p, category: trimmed } : p))
+      prev.map(p => {
+        if (p.category === oldName) {
+          const updated = { ...p, category: trimmed };
+          setDoc(doc(db, 'products', updated.id), updated).catch(err => {
+            handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
+          });
+          return updated;
+        }
+        return p;
+      })
     );
   };
 
   const deleteCategory = (name: string) => {
-    setCategories(prev => {
-      const filtered = prev.filter(c => c !== name);
-      if (filtered.length === 0) {
-        return ['Lainnya'];
-      }
-      return filtered;
+    const filtered = categories.filter(c => c !== name);
+    const next = filtered.length === 0 ? ['Lainnya'] : filtered;
+    setCategories(next);
+    setDoc(doc(db, 'settings', 'categories'), { list: next }).catch(err => {
+      handleFirestoreError(err, OperationType.WRITE, 'settings/categories');
     });
     // Reassign products with this category to another valid category
     setProducts(prev =>
       prev.map(p => {
         if (p.category === name) {
-          return { ...p, category: 'Lainnya' };
+          const updated = { ...p, category: 'Lainnya' };
+          setDoc(doc(db, 'products', updated.id), updated).catch(err => {
+            handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
+          });
+          return updated;
         }
         return p;
       })
@@ -869,9 +1072,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       notes,
     };
 
-    // Deduct stock
+    // Deduct stock & sync to cloud
     setProducts(prev =>
-      prev.map(p => (p.id === productId ? { ...p, stock: Math.max(0, p.stock - quantity) } : p))
+      prev.map(p => {
+        if (p.id === productId) {
+          const updated = { ...p, stock: Math.max(0, p.stock - quantity) };
+          setDoc(doc(db, 'products', updated.id), updated).catch(err => {
+            handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
+          });
+          return updated;
+        }
+        return p;
+      })
     );
 
     setDamageLogs(prev => [newLog, ...prev]);
@@ -898,9 +1110,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       inspector: currentUser?.name || 'Petugas Gudang',
     };
 
-    // Update product stock to match physical stock
+    // Update product stock to match physical stock & sync to cloud
     setProducts(prev =>
-      prev.map(p => (p.id === productId ? { ...p, stock: physicalStock } : p))
+      prev.map(p => {
+        if (p.id === productId) {
+          const updated = { ...p, stock: physicalStock };
+          setDoc(doc(db, 'products', updated.id), updated).catch(err => {
+            handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
+          });
+          return updated;
+        }
+        return p;
+      })
     );
 
     setStockOpnames(prev => [opnameRecord, ...prev]);
@@ -940,6 +1161,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   return (
     <StoreContext.Provider
       value={{
+        isCloudConnected,
         currentUser,
         login,
         logout,

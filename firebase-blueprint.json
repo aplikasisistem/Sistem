@@ -1,0 +1,73 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Inventory product item in the store",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "barcode": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "baseUnit": { "type": "string" },
+        "allowDecimal": { "type": "boolean" },
+        "stock": { "type": "number" },
+        "minStock": { "type": "number" },
+        "costPrice": { "type": "number" },
+        "retailPrice": { "type": "number" },
+        "wholesalePrice": { "type": "number" },
+        "minWholesaleQty": { "type": "number" },
+        "hasMultiUnit": { "type": "boolean" },
+        "boxUnitName": { "type": "string" },
+        "boxConversionRatio": { "type": "number" },
+        "boxWholesalePrice": { "type": "number" },
+        "expiredDate": { "type": "string" },
+        "batchNumber": { "type": "string" }
+      },
+      "required": ["id", "name", "category", "baseUnit", "stock", "costPrice", "retailPrice"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Product category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "POS sales transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "cashierId": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "totalCost": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "amountPaid": { "type": "number" },
+        "change": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "invoiceNumber", "timestamp", "cashierName", "totalAmount", "paymentMethod", "status"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Store inventory products list"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Store product categories"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Completed or recorded POS sales transactions"
+    }
+  }
+}

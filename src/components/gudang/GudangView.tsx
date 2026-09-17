@@ -30,6 +30,7 @@ export const GudangView: React.FC = () => {
     stockOpnames,
     damageLogs,
     currentUser,
+    categories: storeCategories,
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<'inventory' | 'near-expiry' | 'opname' | 'damage'>('inventory');
@@ -720,15 +721,12 @@ export const GudangView: React.FC = () => {
                     onChange={e => setPCategory(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500"
                   >
-                    <option value="Minyak Goreng">Minyak Goreng</option>
-                    <option value="Beras & Biji-bijian">Beras & Biji-bijian</option>
-                    <option value="Gula & Pemanis">Gula & Pemanis</option>
-                    <option value="Telur & Unggas">Telur & Unggas</option>
-                    <option value="Mi Instan & Pasta">Mi Instan & Pasta</option>
-                    <option value="Tepung & Bumbu">Tepung & Bumbu</option>
-                    <option value="Susu & Olahan">Susu & Olahan</option>
-                    <option value="Kopi & Teh">Kopi & Teh</option>
-                    <option value="Sabun & Kebersihan">Sabun & Kebersihan</option>
+                    {(storeCategories && storeCategories.length > 0
+                      ? storeCategories
+                      : ['Minyak Goreng', 'Beras & Biji-bijian', 'Gula & Pemanis', 'Telur & Unggas', 'Mi Instan & Pasta', 'Tepung & Bumbu', 'Susu & Olahan', 'Kopi & Teh', 'Sabun & Kebersihan', 'Minuman Kemasan', 'Tabung', 'Galon', 'Lain-lain']
+                    ).map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -748,6 +746,8 @@ export const GudangView: React.FC = () => {
                     <option value="butir">butir (Telur/Kelapa)</option>
                     <option value="pack">pack (Kemasan Pack)</option>
                     <option value="dus">dus (Karton)</option>
+                    <option value="tabung">tabung (Gas LPG dll)</option>
+                    <option value="galon">galon (Air Mineral dll)</option>
                   </select>
                 </div>
 

@@ -17,7 +17,7 @@ export const INITIAL_USERS: UserAccount[] = [
     role: 'kasir',
     password: 'Pamarayan123',
     isActive: true,
-    phone: '081234567890',
+    phone: '0857-1704-6895',
   },
   {
     id: 'usr_gudang_1',
@@ -26,7 +26,7 @@ export const INITIAL_USERS: UserAccount[] = [
     role: 'gudang',
     password: 'Pamarayan123',
     isActive: true,
-    phone: '082345678901',
+    phone: '0857-1704-6895',
   },
 ];
 
