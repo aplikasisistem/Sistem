@@ -15,7 +15,7 @@ export const INITIAL_USERS: UserAccount[] = [
     username: 'kasir',
     name: 'Kasir Utama',
     role: 'kasir',
-    password: '123',
+    password: 'Pamarayan123',
     isActive: true,
     phone: '081234567890',
   },
@@ -24,7 +24,7 @@ export const INITIAL_USERS: UserAccount[] = [
     username: 'gudang',
     name: 'Petugas Gudang',
     role: 'gudang',
-    password: '123',
+    password: 'Pamarayan123',
     isActive: true,
     phone: '082345678901',
   },
@@ -41,6 +41,8 @@ export const INITIAL_CATEGORIES: string[] = [
   'Kopi & Teh',
   'Sabun & Kebersihan',
   'Minuman Kemasan',
+  'Tabung',
+  'Galon',
   'Lain-lain',
 ];
 

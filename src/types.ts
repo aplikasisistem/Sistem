@@ -13,7 +13,7 @@ export interface UserAccount {
 export type User = UserAccount;
 
 
-export type UnitType = 'kg' | 'pcs' | 'pouch' | 'butir' | 'renceng' | 'dus' | 'sak' | 'liter' | 'pack';
+export type UnitType = 'kg' | 'pcs' | 'pouch' | 'butir' | 'renceng' | 'dus' | 'sak' | 'liter' | 'pack' | 'tabung' | 'galon';
 
 export interface Product {
   id: string;
