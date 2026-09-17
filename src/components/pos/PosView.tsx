@@ -100,12 +100,12 @@ export const PosView: React.FC = () => {
   };
 
   // Checkout Finish
-  const handleConfirmPayment = (
+  const handleConfirmPayment = async (
     method: any,
     amountPaid: number,
     kasbonDetails?: any
   ) => {
-    const trx = checkout(method, amountPaid, kasbonDetails);
+    const trx = await checkout(method, amountPaid, kasbonDetails);
     setIsPaymentOpen(false);
     if (trx) {
       setCompletedTransaction(trx);

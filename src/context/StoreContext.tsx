@@ -32,10 +32,27 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType, safeSetDoc, cleanForFirestore } from '../services/firebase';
+import {
+  isSupabaseConfigured,
+  fetchTransactionsQuery,
+  insertTransactionQuery,
+  updateTransactionQuery,
+  deleteTransactionQuery,
+  payKasbonInSupabase,
+  subscribeToTransactionsChanges,
+} from '../services/supabase';
 
 interface StoreContextType {
   // Cloud Sync
   isCloudConnected: boolean;
+
+  // Supabase Transactions Sync & Status
+  isSupabaseConfigured: boolean;
+  isSupabaseConnected: boolean;
+  isTransactionsLoading: boolean;
+  transactionsError: string | null;
+  clearTransactionsError: () => void;
+  refreshTransactions: () => Promise<void>;
 
   // Auth
   currentUser: UserAccount | null;
@@ -79,16 +96,16 @@ interface StoreContextType {
   openShift: (startingCash: number, notes?: string) => void;
   closeShift: (actualCash: number, notes?: string) => CashierShift | null;
 
-  // Checkout & Transactions
+  // Checkout & Transactions (Supabase Database)
   transactions: Transaction[];
   checkout: (
     paymentMethod: PaymentMethod,
     amountPaid: number,
     kasbonDetails?: { customerName: string; customerPhone?: string; dueDate?: string; notes?: string }
-  ) => Transaction | null;
-  payKasbon: (transactionId: string) => void;
-  updateTransaction: (transaction: Transaction) => void;
-  deleteTransaction: (transactionId: string) => void;
+  ) => Promise<Transaction | null>;
+  payKasbon: (transactionId: string) => Promise<void>;
+  updateTransaction: (transaction: Transaction) => Promise<void>;
+  deleteTransaction: (transactionId: string) => Promise<void>;
 
   // Gudang & Supplier
   suppliers: Supplier[];
@@ -119,7 +136,6 @@ const StoreContext = createContext<StoreContextType | undefined>(undefined);
 const STORAGE_KEYS = {
   USERS: 'alunk_users',
   PRODUCTS: 'alunk_products',
-  TRANSACTIONS: 'alunk_transactions',
   HELD_TRX: 'alunk_held_trx',
   CURRENT_SHIFT: 'alunk_current_shift',
   SUPPLIERS: 'alunk_suppliers',
@@ -152,10 +168,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
   });
 
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
-    return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
-  });
+  // Supabase Transactions state (No localStorage fallback)
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [isTransactionsLoading, setIsTransactionsLoading] = useState<boolean>(true);
+  const [transactionsError, setTransactionsError] = useState<string | null>(null);
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(isSupabaseConfigured);
 
   const [heldTransactions, setHeldTransactions] = useState<HeldTransaction[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.HELD_TRX);
@@ -246,28 +263,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       }
     );
 
-    // 2. Real-time Transactions Sync
-    const unsubTransactions = onSnapshot(
-      collection(db, 'transactions'),
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const loadedTrx: Transaction[] = [];
-          snapshot.forEach(docSnap => {
-            loadedTrx.push(docSnap.data() as Transaction);
-          });
-          loadedTrx.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-          setTransactions(loadedTrx);
-          try {
-            localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(loadedTrx));
-          } catch (e) {}
-        }
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'transactions');
-      }
-    );
-
-    // 3. Real-time Categories Sync
+    // 2. Real-time Categories Sync
     const unsubCategories = onSnapshot(
       doc(db, 'settings', 'categories'),
       (docSnap) => {
@@ -294,8 +290,62 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     return () => {
       unsubProducts();
-      unsubTransactions();
       unsubCategories();
+    };
+  }, []);
+
+  // Supabase Transactions Integration: Query & Realtime Subscription
+  const loadTransactionsFromSupabase = async () => {
+    if (!isSupabaseConfigured) {
+      setIsTransactionsLoading(false);
+      setIsSupabaseConnected(false);
+      // Jika Supabase belum dihubungkan dengan env key, gunakan initial transactions agar UI tetap responsif
+      setTransactions(prev => (prev.length > 0 ? prev : INITIAL_TRANSACTIONS));
+      return;
+    }
+
+    setIsTransactionsLoading(true);
+    try {
+      const { data, error } = await fetchTransactionsQuery();
+      if (error) {
+        console.error('Supabase fetch transactions error:', error);
+        setTransactionsError(`Supabase DB: ${error.message}`);
+        setIsSupabaseConnected(false);
+        // Pertahankan transaksi yang sudah ada di state
+        setTransactions(prev => (prev.length > 0 ? prev : INITIAL_TRANSACTIONS));
+      } else if (data) {
+        setTransactions(data);
+        setIsSupabaseConnected(true);
+        setTransactionsError(null);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('Failed to load transactions from Supabase:', message);
+      setTransactionsError(`Gagal membaca Supabase: ${message}`);
+      setIsSupabaseConnected(false);
+    } finally {
+      setIsTransactionsLoading(false);
+    }
+  };
+
+  const clearTransactionsError = () => {
+    setTransactionsError(null);
+  };
+
+  const refreshTransactions = async () => {
+    await loadTransactionsFromSupabase();
+  };
+
+  useEffect(() => {
+    loadTransactionsFromSupabase();
+
+    // Pasang Supabase Realtime changes listener jika dikonfigurasi
+    const unsubscribe = subscribeToTransactionsChanges(() => {
+      loadTransactionsFromSupabase();
+    });
+
+    return () => {
+      unsubscribe();
     };
   }, []);
 
@@ -379,7 +429,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users)); }, [users]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products)); }, [products]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(transactions)); }, [transactions]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.HELD_TRX, JSON.stringify(heldTransactions)); }, [heldTransactions]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.CURRENT_SHIFT, JSON.stringify(currentShift)); }, [currentShift]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.SUPPLIERS, JSON.stringify(suppliers)); }, [suppliers]);
@@ -785,12 +834,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return closed;
   };
 
-  // Checkout Execution
-  const checkout = (
+  // Checkout Execution (Async dengan Database Supabase)
+  const checkout = async (
     paymentMethod: PaymentMethod,
     amountPaid: number,
     kasbonDetails?: { customerName: string; customerPhone?: string; dueDate?: string; notes?: string }
-  ): Transaction | null => {
+  ): Promise<Transaction | null> => {
     if (cart.length === 0) return null;
 
     const now = new Date();
@@ -872,39 +921,66 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       });
     }
 
-    // 3. Save Transaction Locally and in Cloud
+    // 3. Update state secara optimistik
     setTransactions(prev => [newTransaction, ...prev]);
-    safeSetDoc(doc(db, 'transactions', newTransaction.id), newTransaction).catch(err => {
-      handleFirestoreError(err, OperationType.CREATE, `transactions/${newTransaction.id}`);
-    });
 
-    // 4. Reset Cart
+    // 4. Simpan ke Database Supabase External
+    if (isSupabaseConfigured) {
+      try {
+        const { error } = await insertTransactionQuery(newTransaction);
+        if (error) {
+          console.error('Gagal menyimpan transaksi ke Supabase:', error);
+          setTransactionsError(`Supabase Insert Gagal: ${error.message}`);
+        } else {
+          setTransactionsError(null);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('Error saat insert transaksi ke Supabase:', msg);
+        setTransactionsError(`Gagal kirim ke Supabase: ${msg}`);
+      }
+    }
+
+    // 5. Reset Cart
     setCart([]);
 
     return newTransaction;
   };
 
-  // Kasbon Settlement (Pelunasan Hutang Pelanggan)
-  const payKasbon = (transactionId: string) => {
-    setTransactions(prev =>
-      prev.map(t => {
-        if (t.id !== transactionId) return t;
-        const updated = {
-          ...t,
-          isKasbonPaid: true,
-          kasbonPaidDate: new Date().toISOString(),
-          amountPaid: t.totalAmount,
-        };
-        safeSetDoc(doc(db, 'transactions', transactionId), updated).catch(err => {
-          handleFirestoreError(err, OperationType.UPDATE, `transactions/${transactionId}`);
-        });
-        return updated;
-      })
-    );
+  // Kasbon Settlement (Pelunasan Hutang Pelanggan - Async ke Supabase)
+  const payKasbon = async (transactionId: string): Promise<void> => {
+    const targetTrx = transactions.find(t => t.id === transactionId);
+    if (!targetTrx) return;
+
+    const updated: Transaction = {
+      ...targetTrx,
+      isKasbonPaid: true,
+      kasbonPaidDate: new Date().toISOString(),
+      amountPaid: targetTrx.totalAmount,
+    };
+
+    // Update state secara optimistik
+    setTransactions(prev => prev.map(t => (t.id === transactionId ? updated : t)));
+
+    // Perbarui di Database Supabase
+    if (isSupabaseConfigured) {
+      try {
+        const { error } = await payKasbonInSupabase(transactionId, targetTrx.totalAmount);
+        if (error) {
+          console.error('Gagal update pelunasan kasbon ke Supabase:', error);
+          setTransactionsError(`Supabase Pelunasan Gagal: ${error.message}`);
+        } else {
+          setTransactionsError(null);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('Error saat update pelunasan kasbon ke Supabase:', msg);
+        setTransactionsError(`Gagal kirim pelunasan ke Supabase: ${msg}`);
+      }
+    }
 
     // Increase drawer cash if shift is open
-    const targetTrx = transactions.find(t => t.id === transactionId);
-    if (targetTrx && currentShift && currentShift.status === 'open') {
+    if (currentShift && currentShift.status === 'open') {
       setCurrentShift(prev => {
         if (!prev) return null;
         return {
@@ -916,8 +992,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   };
 
-  // Update Transaction
-  const updateTransaction = (updatedTrx: Transaction) => {
+  // Update Transaction (Async ke Supabase)
+  const updateTransaction = async (updatedTrx: Transaction): Promise<void> => {
     // Check if items quantity changed to adjust product stock
     const oldTrx = transactions.find(t => t.id === updatedTrx.id);
     if (oldTrx) {
@@ -985,13 +1061,27 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
 
     setTransactions(prev => prev.map(t => (t.id === updatedTrx.id ? updatedTrx : t)));
-    safeSetDoc(doc(db, 'transactions', updatedTrx.id), updatedTrx).catch(err => {
-      handleFirestoreError(err, OperationType.UPDATE, `transactions/${updatedTrx.id}`);
-    });
+
+    // Perbarui di Database Supabase
+    if (isSupabaseConfigured) {
+      try {
+        const { error } = await updateTransactionQuery(updatedTrx);
+        if (error) {
+          console.error('Gagal update transaksi ke Supabase:', error);
+          setTransactionsError(`Supabase Update Gagal: ${error.message}`);
+        } else {
+          setTransactionsError(null);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('Error saat update transaksi ke Supabase:', msg);
+        setTransactionsError(`Gagal kirim update ke Supabase: ${msg}`);
+      }
+    }
   };
 
-  // Delete Transaction
-  const deleteTransaction = (transactionId: string) => {
+  // Delete Transaction (Async ke Supabase)
+  const deleteTransaction = async (transactionId: string): Promise<void> => {
     const targetTrx = transactions.find(t => t.id === transactionId);
     if (!targetTrx) return;
 
@@ -1035,11 +1125,25 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       });
     }
 
-    // 3. Remove transaction from state and Firestore
+    // 3. Remove transaction from state
     setTransactions(prev => prev.filter(t => t.id !== transactionId));
-    deleteDoc(doc(db, 'transactions', transactionId)).catch(err => {
-      handleFirestoreError(err, OperationType.DELETE, `transactions/${transactionId}`);
-    });
+
+    // 4. Hapus dari Database Supabase
+    if (isSupabaseConfigured) {
+      try {
+        const { error } = await deleteTransactionQuery(transactionId);
+        if (error) {
+          console.error('Gagal menghapus transaksi dari Supabase:', error);
+          setTransactionsError(`Supabase Delete Gagal: ${error.message}`);
+        } else {
+          setTransactionsError(null);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('Error saat delete transaksi dari Supabase:', msg);
+        setTransactionsError(`Gagal kirim hapus ke Supabase: ${msg}`);
+      }
+    }
   };
 
   // Supplier Purchasing & Unit Conversion
@@ -1289,6 +1393,15 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     <StoreContext.Provider
       value={{
         isCloudConnected,
+
+        // Supabase Status & Controls
+        isSupabaseConfigured,
+        isSupabaseConnected,
+        isTransactionsLoading,
+        transactionsError,
+        clearTransactionsError,
+        refreshTransactions,
+
         currentUser,
         login,
         logout,

@@ -13,7 +13,8 @@ import {
   AlertCircle, 
   FileText, 
   CheckCircle2, 
-  Clock 
+  Clock,
+  Loader2
 } from 'lucide-react';
 
 interface EditKasbonModalProps {
@@ -36,6 +37,7 @@ export const EditKasbonModal: React.FC<EditKasbonModalProps> = ({
   const [status, setStatus] = useState<'unpaid' | 'paid'>('unpaid');
   const [paidDate, setPaidDate] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (transaction) {
@@ -71,7 +73,7 @@ export const EditKasbonModal: React.FC<EditKasbonModalProps> = ({
 
   const numTotalAmount = parseThousand(totalAmount) || 0;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
 
@@ -130,8 +132,15 @@ export const EditKasbonModal: React.FC<EditKasbonModalProps> = ({
       items: updatedItems,
     };
 
-    updateTransaction(updatedTransaction);
-    onClose();
+    setIsSaving(true);
+    try {
+      await updateTransaction(updatedTransaction);
+      onClose();
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Gagal menyimpan perubahan ke database');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -340,10 +349,20 @@ export const EditKasbonModal: React.FC<EditKasbonModalProps> = ({
           <button
             type="submit"
             form="edit-kasbon-form"
-            className="py-2.5 px-5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-2 shadow-xs transition cursor-pointer"
+            disabled={isSaving}
+            className="py-2.5 px-5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-2 shadow-xs transition disabled:opacity-50 cursor-pointer"
           >
-            <Save className="w-4 h-4" />
-            <span>Simpan Perubahan</span>
+            {isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Menyimpan ke DB...</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                <span>Simpan Perubahan</span>
+              </>
+            )}
           </button>
         </div>
       </div>
