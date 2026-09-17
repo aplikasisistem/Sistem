@@ -214,6 +214,30 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, []);
 
+  // Sync admin credentials to ALUNK / Pamarayan123 if still using legacy credentials
+  useEffect(() => {
+    setUsers(prev => {
+      let changed = false;
+      const updated = prev.map(u => {
+        if (u.role === 'admin' && (u.username !== 'ALUNK' || u.password !== 'Pamarayan123')) {
+          changed = true;
+          return {
+            ...u,
+            username: 'ALUNK',
+            password: 'Pamarayan123',
+            isActive: true,
+          };
+        }
+        return u;
+      });
+      if (changed) {
+        try { localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(updated)); } catch (e) {}
+        return updated;
+      }
+      return prev;
+    });
+  }, []);
+
   // Sync to localStorage
   useEffect(() => {
     if (currentUser) {
@@ -239,6 +263,20 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const login = (username: string, pass: string): boolean => {
     const cleanUser = username.trim().toLowerCase();
     const cleanPass = pass.trim();
+
+    // Direct check for admin credentials: ALUNK / Pamarayan123 (or admin fallback)
+    if ((cleanUser === 'alunk' || cleanUser === 'admin') && cleanPass === 'Pamarayan123') {
+      const adminUser = users.find(u => u.role === 'admin') || INITIAL_USERS[0];
+      const syncedAdmin: UserAccount = {
+        ...adminUser,
+        username: 'ALUNK',
+        password: 'Pamarayan123',
+        isActive: true,
+      };
+      updateUser(syncedAdmin);
+      setCurrentUser(syncedAdmin);
+      return true;
+    }
 
     // 1. Check in state
     const found = users.find(

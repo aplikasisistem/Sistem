@@ -56,10 +56,10 @@ export const LoginScreen: React.FC = () => {
           </div>
 
           {/* Store Address Card */}
-          <div className="mt-4 p-3.5 rounded-2xl bg-slate-800/80 border border-slate-700/80 text-center flex flex-col items-center justify-center space-y-2">
-            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-300 max-w-sm mx-auto leading-relaxed">
-              <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>
+          <div className="mt-4 p-3.5 rounded-2xl bg-slate-800/80 border border-slate-700/80 flex flex-col items-center justify-center space-y-2.5 text-center">
+            <div className="flex items-start justify-center gap-2 text-xs text-slate-300 max-w-md mx-auto leading-relaxed text-left">
+              <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <span className="leading-snug text-slate-300">
                 Jl. Tambak Pamarayan, Kp. Kedung Sapi Masjid RT. 009 / RW 003, Desa Kp. Baru, Kec. Pamarayan, Serang - Banten
               </span>
             </div>

@@ -3,10 +3,10 @@ import { Product, UserAccount, Supplier, SupplierPurchase, Transaction, Operatio
 export const INITIAL_USERS: UserAccount[] = [
   {
     id: 'usr_admin_1',
-    username: 'admin',
+    username: 'ALUNK',
     name: 'Pemilik Toko (Alunk)',
     role: 'admin',
-    password: '123',
+    password: 'Pamarayan123',
     isActive: true,
     phone: '+62821-2584-5237',
   },
