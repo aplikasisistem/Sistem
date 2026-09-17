@@ -51,15 +51,15 @@ export const GudangView: React.FC = () => {
   const [pCategory, setPCategory] = useState('Minyak Goreng');
   const [pBaseUnit, setPBaseUnit] = useState<UnitType>('pcs');
   const [pAllowDecimal, setPAllowDecimal] = useState(false);
-  const [pStock, setPStock] = useState('0');
-  const [pMinStock, setPMinStock] = useState('10');
-  const [pCostPrice, setPCostPrice] = useState('0');
-  const [pRetailPrice, setPRetailPrice] = useState('0');
-  const [pWholesalePrice, setPWholesalePrice] = useState('0');
-  const [pMinWholesaleQty, setPMinWholesaleQty] = useState('12');
+  const [pStock, setPStock] = useState('');
+  const [pMinStock, setPMinStock] = useState('');
+  const [pCostPrice, setPCostPrice] = useState('');
+  const [pRetailPrice, setPRetailPrice] = useState('');
+  const [pWholesalePrice, setPWholesalePrice] = useState('');
+  const [pMinWholesaleQty, setPMinWholesaleQty] = useState('');
   const [pHasMultiUnit, setPHasMultiUnit] = useState(false);
   const [pBoxUnitName, setPBoxUnitName] = useState('Dus');
-  const [pBoxRatio, setPBoxRatio] = useState('12');
+  const [pBoxRatio, setPBoxRatio] = useState('');
   const [pBoxWholesalePrice, setPBoxWholesalePrice] = useState('');
   const [pExpiredDate, setPExpiredDate] = useState('');
 
@@ -98,17 +98,17 @@ export const GudangView: React.FC = () => {
     setPName('');
     setPBarcode(`899${Math.floor(1000000000 + Math.random() * 9000000000)}`);
     setPCategory('Beras & Biji-bijian');
-    setPBaseUnit('kg');
-    setPAllowDecimal(true);
-    setPStock('50');
-    setPMinStock('10');
-    setPCostPrice('12000');
-    setPRetailPrice('15000');
-    setPWholesalePrice('14000');
-    setPMinWholesaleQty('25');
+    setPBaseUnit('pcs');
+    setPAllowDecimal(false);
+    setPStock('');
+    setPMinStock('');
+    setPCostPrice('');
+    setPRetailPrice('');
+    setPWholesalePrice('');
+    setPMinWholesaleQty('');
     setPHasMultiUnit(false);
     setPBoxUnitName('Dus');
-    setPBoxRatio('12');
+    setPBoxRatio('');
     setPBoxWholesalePrice('');
     setPExpiredDate('');
     setIsAddProductOpen(true);
@@ -747,8 +747,8 @@ export const GudangView: React.FC = () => {
                     <option value="butir">butir (Telur/Kelapa)</option>
                     <option value="pack">pack (Kemasan Pack)</option>
                     <option value="dus">dus (Karton)</option>
-                    <option value="tabung">tabung (Gas LPG dll)</option>
-                    <option value="galon">galon (Air Mineral dll)</option>
+                    <option value="tabung">tabung (Gas LPG)</option>
+                    <option value="galon">galon (Air Mineral)</option>
                   </select>
                 </div>
 
@@ -886,7 +886,7 @@ export const GudangView: React.FC = () => {
                   <FormattedNumberInput
                     value={pMinWholesaleQty}
                     onChange={e => setPMinWholesaleQty(e.target.value)}
-                    placeholder="1"
+                    placeholder="0"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-900"
                   />
                 </div>
