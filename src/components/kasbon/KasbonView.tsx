@@ -1,12 +1,30 @@
 import React, { useState } from 'react';
 import { useStore } from '../../context/StoreContext';
+import { Transaction } from '../../types';
 import { formatRupiah, formatDateTimeIndo, formatDateIndo } from '../../utils/formatters';
-import { CreditCard, CheckCircle, AlertCircle, Phone, Calendar, Search, ArrowDownCircle } from 'lucide-react';
+import { EditKasbonModal } from './EditKasbonModal';
+import { 
+  CreditCard, 
+  CheckCircle, 
+  AlertCircle, 
+  Phone, 
+  Calendar, 
+  Search, 
+  ArrowDownCircle,
+  Edit,
+  Trash2,
+  AlertTriangle,
+  X
+} from 'lucide-react';
 
 export const KasbonView: React.FC = () => {
-  const { transactions, payKasbon } = useStore();
+  const { transactions, payKasbon, deleteTransaction } = useStore();
   const [filterQuery, setFilterQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'unpaid' | 'paid'>('unpaid');
+
+  // Modal states
+  const [editingKasbon, setEditingKasbon] = useState<Transaction | null>(null);
+  const [deletingKasbon, setDeletingKasbon] = useState<Transaction | null>(null);
 
   // Filter kasbon transactions
   const kasbonList = transactions.filter(t => t.paymentMethod === 'kasbon');
@@ -38,6 +56,12 @@ export const KasbonView: React.FC = () => {
 
   const handlePelunasan = (id: string, customerName?: string, amount?: number) => {
     setPelunasanTarget({ id, customerName, amount });
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deletingKasbon) return;
+    deleteTransaction(deletingKasbon.id);
+    setDeletingKasbon(null);
   };
 
   return (
@@ -148,12 +172,13 @@ export const KasbonView: React.FC = () => {
                 <th className="py-3.5 px-4">Item Kasbon</th>
                 <th className="py-3.5 px-4 text-right">Jumlah Piutang</th>
                 <th className="py-3.5 px-4 text-center">Status & Pelunasan</th>
+                <th className="py-3.5 px-4 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredKasbon.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
                     Tidak ada catatan kasbon pelanggan yang cocok dengan filter.
                   </td>
                 </tr>
@@ -238,6 +263,28 @@ export const KasbonView: React.FC = () => {
                           </button>
                         )}
                       </td>
+                      <td className="py-4 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setEditingKasbon(item)}
+                            className="py-1.5 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold text-xs inline-flex items-center gap-1 transition cursor-pointer"
+                            title="Edit data kasbon ini"
+                          >
+                            <Edit className="w-3.5 h-3.5 text-amber-700" />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeletingKasbon(item)}
+                            className="py-1.5 px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 font-bold text-xs inline-flex items-center gap-1 transition cursor-pointer"
+                            title="Hapus data kasbon ini"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-700" />
+                            <span>Hapus</span>
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })
@@ -246,6 +293,81 @@ export const KasbonView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* EDIT KASBON MODAL */}
+      <EditKasbonModal
+        transaction={editingKasbon}
+        onClose={() => setEditingKasbon(null)}
+      />
+
+      {/* CONFIRMATION MODAL: HAPUS KASBON */}
+      {deletingKasbon && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-black text-slate-900 text-base">Hapus Data Kasbon</h3>
+                <p className="text-xs text-slate-500">Konfirmasi pembatalan piutang pelanggan</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 text-xs">
+              <p className="text-slate-800 font-bold text-sm">
+                Apakah Anda yakin ingin menghapus data kasbon ini?
+              </p>
+              <div className="pt-2 border-t border-slate-200 space-y-1 font-mono text-slate-600 text-[11px]">
+                <div className="flex justify-between">
+                  <span>Nama Pelanggan:</span>
+                  <span className="font-bold text-slate-900">{deletingKasbon.customerName || 'Pelanggan'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>No. Invoice:</span>
+                  <span className="font-bold text-slate-800">{deletingKasbon.invoiceNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Jumlah Kasbon:</span>
+                  <span className="font-bold text-amber-700">{formatRupiah(deletingKasbon.totalAmount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Status:</span>
+                  <span className={`font-bold ${deletingKasbon.isKasbonPaid ? 'text-emerald-700' : 'text-amber-700'}`}>
+                    {deletingKasbon.isKasbonPaid ? 'Sudah Lunas' : 'Belum Lunas'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Tanggal:</span>
+                  <span>{formatDateIndo(deletingKasbon.timestamp)}</span>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-500 bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-amber-900">
+              💡 <strong>Catatan:</strong> Data kasbon akan dihapus dari sistem & database, dan stok barang akan dikembalikan ke gudang otomatis.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingKasbon(null)}
+                className="py-2.5 px-4 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 font-bold text-xs transition cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="py-2.5 px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Ya, Hapus Kasbon</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CONFIRMATION MODAL: PELUNASAN KASBON */}
       {pelunasanTarget && (

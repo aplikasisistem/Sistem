@@ -87,6 +87,8 @@ interface StoreContextType {
     kasbonDetails?: { customerName: string; customerPhone?: string; dueDate?: string; notes?: string }
   ) => Transaction | null;
   payKasbon: (transactionId: string) => void;
+  updateTransaction: (transaction: Transaction) => void;
+  deleteTransaction: (transactionId: string) => void;
 
   // Gudang & Supplier
   suppliers: Supplier[];
@@ -914,6 +916,132 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   };
 
+  // Update Transaction
+  const updateTransaction = (updatedTrx: Transaction) => {
+    // Check if items quantity changed to adjust product stock
+    const oldTrx = transactions.find(t => t.id === updatedTrx.id);
+    if (oldTrx) {
+      setProducts(prev => {
+        const copy = [...prev];
+        // 1. Revert old items stock
+        oldTrx.items.forEach(oldItem => {
+          const idx = copy.findIndex(p => p.id === oldItem.productId);
+          if (idx > -1) {
+            copy[idx] = {
+              ...copy[idx],
+              stock: copy[idx].stock + oldItem.quantity,
+            };
+          }
+        });
+        // 2. Apply new items stock deduction
+        updatedTrx.items.forEach(newItem => {
+          const idx = copy.findIndex(p => p.id === newItem.productId);
+          if (idx > -1) {
+            copy[idx] = {
+              ...copy[idx],
+              stock: Math.max(0, copy[idx].stock - newItem.quantity),
+            };
+          }
+        });
+        // Save affected products to Firestore
+        copy.forEach(p => {
+          const oldProduct = prev.find(oldP => oldP.id === p.id);
+          if (oldProduct && oldProduct.stock !== p.stock) {
+            safeSetDoc(doc(db, 'products', p.id), p).catch(err => {
+              handleFirestoreError(err, OperationType.UPDATE, `products/${p.id}`);
+            });
+          }
+        });
+        return copy;
+      });
+
+      // Also adjust shift sales if during open shift
+      if (currentShift && currentShift.status === 'open') {
+        setCurrentShift(prev => {
+          if (!prev) return null;
+          let cashDelta = 0;
+          let qrisDelta = 0;
+          let kasbonDelta = 0;
+
+          // Revert old method
+          if (oldTrx.paymentMethod === 'tunai') cashDelta -= oldTrx.totalAmount;
+          else if (oldTrx.paymentMethod === 'qris') qrisDelta -= oldTrx.totalAmount;
+          else if (oldTrx.paymentMethod === 'kasbon') kasbonDelta -= oldTrx.totalAmount;
+
+          // Add new method
+          if (updatedTrx.paymentMethod === 'tunai') cashDelta += updatedTrx.totalAmount;
+          else if (updatedTrx.paymentMethod === 'qris') qrisDelta += updatedTrx.totalAmount;
+          else if (updatedTrx.paymentMethod === 'kasbon') kasbonDelta += updatedTrx.totalAmount;
+
+          return {
+            ...prev,
+            totalCashSales: Math.max(0, prev.totalCashSales + cashDelta),
+            totalQrisSales: Math.max(0, prev.totalQrisSales + qrisDelta),
+            totalKasbonSales: Math.max(0, prev.totalKasbonSales + kasbonDelta),
+            expectedDrawerCash: Math.max(0, prev.expectedDrawerCash + cashDelta),
+          };
+        });
+      }
+    }
+
+    setTransactions(prev => prev.map(t => (t.id === updatedTrx.id ? updatedTrx : t)));
+    safeSetDoc(doc(db, 'transactions', updatedTrx.id), updatedTrx).catch(err => {
+      handleFirestoreError(err, OperationType.UPDATE, `transactions/${updatedTrx.id}`);
+    });
+  };
+
+  // Delete Transaction
+  const deleteTransaction = (transactionId: string) => {
+    const targetTrx = transactions.find(t => t.id === transactionId);
+    if (!targetTrx) return;
+
+    // 1. Restore product stocks
+    setProducts(prev => {
+      const copy = [...prev];
+      targetTrx.items.forEach(item => {
+        const prodIndex = copy.findIndex(p => p.id === item.productId);
+        if (prodIndex > -1) {
+          const updated = {
+            ...copy[prodIndex],
+            stock: copy[prodIndex].stock + item.quantity,
+          };
+          copy[prodIndex] = updated;
+          safeSetDoc(doc(db, 'products', updated.id), updated).catch(err => {
+            handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
+          });
+        }
+      });
+      return copy;
+    });
+
+    // 2. Adjust shift if open
+    if (currentShift && currentShift.status === 'open') {
+      setCurrentShift(prev => {
+        if (!prev) return null;
+        let subCash = 0;
+        let subQris = 0;
+        let subKasbon = 0;
+        if (targetTrx.paymentMethod === 'tunai') subCash = targetTrx.totalAmount;
+        else if (targetTrx.paymentMethod === 'qris') subQris = targetTrx.totalAmount;
+        else if (targetTrx.paymentMethod === 'kasbon') subKasbon = targetTrx.totalAmount;
+
+        return {
+          ...prev,
+          totalCashSales: Math.max(0, prev.totalCashSales - subCash),
+          totalQrisSales: Math.max(0, prev.totalQrisSales - subQris),
+          totalKasbonSales: Math.max(0, prev.totalKasbonSales - subKasbon),
+          expectedDrawerCash: Math.max(0, prev.expectedDrawerCash - subCash),
+        };
+      });
+    }
+
+    // 3. Remove transaction from state and Firestore
+    setTransactions(prev => prev.filter(t => t.id !== transactionId));
+    deleteDoc(doc(db, 'transactions', transactionId)).catch(err => {
+      handleFirestoreError(err, OperationType.DELETE, `transactions/${transactionId}`);
+    });
+  };
+
   // Supplier Purchasing & Unit Conversion
   const addSupplier = (sData: Omit<Supplier, 'id'>) => {
     const newSup: Supplier = {
@@ -1200,6 +1328,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         transactions,
         checkout,
         payKasbon,
+        updateTransaction,
+        deleteTransaction,
 
         suppliers,
         addSupplier,
