@@ -6,6 +6,7 @@ import { PaymentModal } from './PaymentModal';
 import { ReceiptModal } from './ReceiptModal';
 import { HeldTransactionsModal } from './HeldTransactionsModal';
 import { ShiftModal } from './ShiftModal';
+import FormattedNumberInput from '../common/FormattedNumberInput';
 import { 
   Search, 
   Barcode, 
@@ -437,14 +438,10 @@ export const PosView: React.FC = () => {
                           <Minus className="w-3 h-3" />
                         </button>
 
-                        <input
-                          type="number"
-                          step={item.product.allowDecimal ? '0.01' : '1'}
+                        <FormattedNumberInput
+                          allowDecimal={item.product.allowDecimal}
                           value={item.quantity}
-                          onChange={e => {
-                            const val = parseFloat(e.target.value) || 0;
-                            updateCartQuantity(idx, val);
-                          }}
+                          onChangeValue={val => updateCartQuantity(idx, val)}
                           className="w-14 text-center font-mono font-bold text-xs bg-transparent focus:outline-none"
                         />
 

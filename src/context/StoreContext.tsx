@@ -27,12 +27,11 @@ import {
 import {
   collection,
   doc,
-  setDoc,
   deleteDoc,
   onSnapshot,
   writeBatch,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../services/firebase';
+import { db, handleFirestoreError, OperationType, safeSetDoc, cleanForFirestore } from '../services/firebase';
 
 interface StoreContextType {
   // Cloud Sync
@@ -218,7 +217,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             const batch = writeBatch(db);
             INITIAL_PRODUCTS.forEach(p => {
               const docRef = doc(db, 'products', p.id);
-              batch.set(docRef, p);
+              batch.set(docRef, cleanForFirestore(p));
             });
             batch.commit().catch(err => {
               handleFirestoreError(err, OperationType.WRITE, 'products');
@@ -281,7 +280,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           }
         } else {
           // Initialize categories document in Firestore
-          setDoc(doc(db, 'settings', 'categories'), { list: INITIAL_CATEGORIES }).catch(err => {
+          safeSetDoc(doc(db, 'settings', 'categories'), { list: INITIAL_CATEGORIES }).catch(err => {
             handleFirestoreError(err, OperationType.WRITE, 'settings/categories');
           });
         }
@@ -533,7 +532,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return next;
     });
     // Cloud Sync
-    setDoc(doc(db, 'products', newProd.id), newProd).catch(err => {
+    safeSetDoc(doc(db, 'products', newProd.id), newProd).catch(err => {
       handleFirestoreError(err, OperationType.CREATE, `products/${newProd.id}`);
     });
   };
@@ -558,7 +557,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return next;
     });
     // Cloud Sync
-    setDoc(doc(db, 'products', sanitizedProd.id), sanitizedProd).catch(err => {
+    safeSetDoc(doc(db, 'products', sanitizedProd.id), sanitizedProd).catch(err => {
       handleFirestoreError(err, OperationType.UPDATE, `products/${sanitizedProd.id}`);
     });
   };
@@ -601,7 +600,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return next;
     });
     if (updatedProduct) {
-      setDoc(doc(db, 'products', id), updatedProduct).catch(err => {
+      safeSetDoc(doc(db, 'products', id), updatedProduct).catch(err => {
         handleFirestoreError(err, OperationType.UPDATE, `products/${id}`);
       });
     }
@@ -841,7 +840,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           };
           copy[prodIndex] = updated;
           // Cloud Sync Product Stock
-          setDoc(doc(db, 'products', updated.id), updated).catch(err => {
+          safeSetDoc(doc(db, 'products', updated.id), updated).catch(err => {
             handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
           });
         }
@@ -873,7 +872,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     // 3. Save Transaction Locally and in Cloud
     setTransactions(prev => [newTransaction, ...prev]);
-    setDoc(doc(db, 'transactions', newTransaction.id), newTransaction).catch(err => {
+    safeSetDoc(doc(db, 'transactions', newTransaction.id), newTransaction).catch(err => {
       handleFirestoreError(err, OperationType.CREATE, `transactions/${newTransaction.id}`);
     });
 
@@ -894,7 +893,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           kasbonPaidDate: new Date().toISOString(),
           amountPaid: t.totalAmount,
         };
-        setDoc(doc(db, 'transactions', transactionId), updated).catch(err => {
+        safeSetDoc(doc(db, 'transactions', transactionId), updated).catch(err => {
           handleFirestoreError(err, OperationType.UPDATE, `transactions/${transactionId}`);
         });
         return updated;
@@ -948,7 +947,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           };
           copy[prodIndex] = updated;
           // Cloud sync product stock
-          setDoc(doc(db, 'products', updated.id), updated).catch(err => {
+          safeSetDoc(doc(db, 'products', updated.id), updated).catch(err => {
             handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
           });
         }
@@ -996,7 +995,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (exists) return false;
     const next = [...categories, trimmed];
     setCategories(next);
-    setDoc(doc(db, 'settings', 'categories'), { list: next }).catch(err => {
+    safeSetDoc(doc(db, 'settings', 'categories'), { list: next }).catch(err => {
       handleFirestoreError(err, OperationType.WRITE, 'settings/categories');
     });
     return true;
@@ -1007,7 +1006,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (!trimmed || trimmed.toLowerCase() === oldName.toLowerCase()) return;
     const next = categories.map(c => (c === oldName ? trimmed : c));
     setCategories(next);
-    setDoc(doc(db, 'settings', 'categories'), { list: next }).catch(err => {
+    safeSetDoc(doc(db, 'settings', 'categories'), { list: next }).catch(err => {
       handleFirestoreError(err, OperationType.WRITE, 'settings/categories');
     });
     // Update category in products
@@ -1015,7 +1014,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       prev.map(p => {
         if (p.category === oldName) {
           const updated = { ...p, category: trimmed };
-          setDoc(doc(db, 'products', updated.id), updated).catch(err => {
+          safeSetDoc(doc(db, 'products', updated.id), updated).catch(err => {
             handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
           });
           return updated;
@@ -1029,7 +1028,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const filtered = categories.filter(c => c !== name);
     const next = filtered.length === 0 ? ['Lainnya'] : filtered;
     setCategories(next);
-    setDoc(doc(db, 'settings', 'categories'), { list: next }).catch(err => {
+    safeSetDoc(doc(db, 'settings', 'categories'), { list: next }).catch(err => {
       handleFirestoreError(err, OperationType.WRITE, 'settings/categories');
     });
     // Reassign products with this category to another valid category
@@ -1037,7 +1036,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       prev.map(p => {
         if (p.category === name) {
           const updated = { ...p, category: 'Lainnya' };
-          setDoc(doc(db, 'products', updated.id), updated).catch(err => {
+          safeSetDoc(doc(db, 'products', updated.id), updated).catch(err => {
             handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
           });
           return updated;
@@ -1077,7 +1076,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       prev.map(p => {
         if (p.id === productId) {
           const updated = { ...p, stock: Math.max(0, p.stock - quantity) };
-          setDoc(doc(db, 'products', updated.id), updated).catch(err => {
+          safeSetDoc(doc(db, 'products', updated.id), updated).catch(err => {
             handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
           });
           return updated;
@@ -1115,7 +1114,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       prev.map(p => {
         if (p.id === productId) {
           const updated = { ...p, stock: physicalStock };
-          setDoc(doc(db, 'products', updated.id), updated).catch(err => {
+          safeSetDoc(doc(db, 'products', updated.id), updated).catch(err => {
             handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
           });
           return updated;

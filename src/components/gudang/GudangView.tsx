@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { Product, UnitType } from '../../types';
-import { formatRupiah, formatNumber, getDaysUntilExpired, formatDateIndo } from '../../utils/formatters';
+import { formatRupiah, formatNumber, getDaysUntilExpired, formatDateIndo, parseThousand } from '../../utils/formatters';
+import FormattedNumberInput from '../common/FormattedNumberInput';
 import { 
   Package, 
   Plus, 
@@ -144,16 +145,16 @@ export const GudangView: React.FC = () => {
       category: pCategory,
       baseUnit: pBaseUnit,
       allowDecimal: pAllowDecimal,
-      stock: parseFloat(pStock) || 0,
-      minStock: parseFloat(pMinStock) || 0,
-      costPrice: parseFloat(pCostPrice) || 0,
-      retailPrice: parseFloat(pRetailPrice) || 0,
-      wholesalePrice: parseFloat(pWholesalePrice) || 0,
-      minWholesaleQty: parseFloat(pMinWholesaleQty) || 1,
+      stock: parseThousand(pStock),
+      minStock: parseThousand(pMinStock),
+      costPrice: parseThousand(pCostPrice),
+      retailPrice: parseThousand(pRetailPrice),
+      wholesalePrice: parseThousand(pWholesalePrice),
+      minWholesaleQty: parseThousand(pMinWholesaleQty) || 1,
       hasMultiUnit: pHasMultiUnit,
       boxUnitName: pHasMultiUnit ? pBoxUnitName : undefined,
-      boxConversionRatio: pHasMultiUnit ? parseFloat(pBoxRatio) || 1 : undefined,
-      boxWholesalePrice: pHasMultiUnit && pBoxWholesalePrice ? parseFloat(pBoxWholesalePrice) : undefined,
+      boxConversionRatio: pHasMultiUnit ? parseThousand(pBoxRatio) || 1 : undefined,
+      boxWholesalePrice: pHasMultiUnit && pBoxWholesalePrice ? parseThousand(pBoxWholesalePrice) : undefined,
       expiredDate: pExpiredDate || undefined,
     };
 
@@ -173,7 +174,7 @@ export const GudangView: React.FC = () => {
   const handleConfirmOpname = (e: React.FormEvent) => {
     e.preventDefault();
     if (!opnameTargetProduct) return;
-    const physical = parseFloat(opnamePhysicalStock) || 0;
+    const physical = parseThousand(opnamePhysicalStock);
     performStockOpname(opnameTargetProduct.id, physical, opnameReason.trim());
     setOpnameTargetProduct(null);
     setOpnamePhysicalStock('');
@@ -184,7 +185,7 @@ export const GudangView: React.FC = () => {
   const handleConfirmDamage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!damageTargetProduct) return;
-    const qty = parseFloat(damageQty) || 0;
+    const qty = parseThousand(damageQty);
     recordDamageOrReturn(damageTargetProduct.id, qty, damageReason, damageNotes.trim());
     setDamageTargetProduct(null);
     setDamageQty('');
@@ -801,8 +802,7 @@ export const GudangView: React.FC = () => {
                       <label className="block text-[11px] font-bold text-teal-900 mb-1">
                         1 Satuan Besar = Berapa Satuan Dasar?
                       </label>
-                      <input
-                        type="number"
+                      <FormattedNumberInput
                         value={pBoxRatio}
                         onChange={e => setPBoxRatio(e.target.value)}
                         placeholder="12"
@@ -819,11 +819,11 @@ export const GudangView: React.FC = () => {
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Stok Awal
                   </label>
-                  <input
-                    type="number"
-                    step="any"
+                  <FormattedNumberInput
+                    allowDecimal={pAllowDecimal}
                     value={pStock}
                     onChange={e => setPStock(e.target.value)}
+                    placeholder="0"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-900"
                   />
                 </div>
@@ -832,10 +832,11 @@ export const GudangView: React.FC = () => {
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Batas Minimum Stok
                   </label>
-                  <input
-                    type="number"
+                  <FormattedNumberInput
+                    allowDecimal={pAllowDecimal}
                     value={pMinStock}
                     onChange={e => setPMinStock(e.target.value)}
+                    placeholder="0"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-900"
                   />
                 </div>
@@ -844,10 +845,10 @@ export const GudangView: React.FC = () => {
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     HPP (Harga Beli)
                   </label>
-                  <input
-                    type="number"
+                  <FormattedNumberInput
                     value={pCostPrice}
                     onChange={e => setPCostPrice(e.target.value)}
+                    placeholder="0"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-900"
                   />
                 </div>
@@ -856,10 +857,10 @@ export const GudangView: React.FC = () => {
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Harga Jual Eceran
                   </label>
-                  <input
-                    type="number"
+                  <FormattedNumberInput
                     value={pRetailPrice}
                     onChange={e => setPRetailPrice(e.target.value)}
+                    placeholder="0"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-900 font-bold"
                   />
                 </div>
@@ -870,10 +871,10 @@ export const GudangView: React.FC = () => {
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Harga Jual Grosir (Partai)
                   </label>
-                  <input
-                    type="number"
+                  <FormattedNumberInput
                     value={pWholesalePrice}
                     onChange={e => setPWholesalePrice(e.target.value)}
+                    placeholder="0"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-teal-800 font-bold"
                   />
                 </div>
@@ -882,10 +883,10 @@ export const GudangView: React.FC = () => {
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Min Qty untuk Harga Grosir
                   </label>
-                  <input
-                    type="number"
+                  <FormattedNumberInput
                     value={pMinWholesaleQty}
                     onChange={e => setPMinWholesaleQty(e.target.value)}
+                    placeholder="1"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-900"
                   />
                 </div>
@@ -949,12 +950,12 @@ export const GudangView: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Jumlah Hitungan Fisik di Toko/Gudang ({opnameTargetProduct.baseUnit}) *
                 </label>
-                <input
-                  type="number"
-                  step="any"
+                <FormattedNumberInput
+                  allowDecimal={opnameTargetProduct.allowDecimal}
                   required
                   value={opnamePhysicalStock}
                   onChange={e => setOpnamePhysicalStock(e.target.value)}
+                  placeholder="0"
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono font-bold text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
@@ -1034,12 +1035,12 @@ export const GudangView: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Jumlah yang Ditarik ({damageTargetProduct.baseUnit}) *
                 </label>
-                <input
-                  type="number"
-                  step="any"
+                <FormattedNumberInput
+                  allowDecimal={damageTargetProduct.allowDecimal}
                   required
                   value={damageQty}
                   onChange={e => setDamageQty(e.target.value)}
+                  placeholder="0"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono font-bold text-xs text-slate-900"
                 />
               </div>

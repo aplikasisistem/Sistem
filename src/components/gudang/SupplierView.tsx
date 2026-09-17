@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { Product, Supplier, SupplierPurchase } from '../../types';
-import { formatRupiah, formatNumber, formatDateIndo, formatDateTimeIndo } from '../../utils/formatters';
+import { formatRupiah, formatNumber, formatDateIndo, formatDateTimeIndo, parseThousand } from '../../utils/formatters';
+import FormattedNumberInput from '../common/FormattedNumberInput';
 import { 
   Truck, 
   Plus, 
@@ -112,8 +113,8 @@ export const SupplierView: React.FC = () => {
 
     if (!sup || !prod) return;
 
-    const qtyEntered = parseFloat(entryQty) || 1;
-    const unitPrice = parseFloat(entryUnitPrice) || 0;
+    const qtyEntered = parseThousand(entryQty) || 1;
+    const unitPrice = parseThousand(entryUnitPrice) || 0;
     const subtotal = qtyEntered * unitPrice;
 
     // AUTOMATIC UNIT CONVERSION:
@@ -221,7 +222,7 @@ export const SupplierView: React.FC = () => {
     e.preventDefault();
     if (!purchaseToEdit || !isAdmin) return;
 
-    const newTotal = parseFloat(editTotalAmount) || purchaseToEdit.totalAmount;
+    const newTotal = parseThousand(editTotalAmount) || purchaseToEdit.totalAmount;
     updateSupplierPurchase({
       ...purchaseToEdit,
       invoiceNumber: editInvoiceNo.trim() || purchaseToEdit.invoiceNumber,
@@ -757,12 +758,12 @@ export const SupplierView: React.FC = () => {
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Jumlah Masuk *
                   </label>
-                  <input
-                    type="number"
-                    step="any"
+                  <FormattedNumberInput
+                    allowDecimal={true}
                     required
                     value={entryQty}
                     onChange={e => setEntryQty(e.target.value)}
+                    placeholder="1"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm font-mono font-bold text-slate-900"
                   />
                 </div>
@@ -771,11 +772,11 @@ export const SupplierView: React.FC = () => {
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Harga Beli Total per Satuan Input (Rp) *
                   </label>
-                  <input
-                    type="number"
+                  <FormattedNumberInput
                     required
                     value={entryUnitPrice}
                     onChange={e => setEntryUnitPrice(e.target.value)}
+                    placeholder="0"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm font-mono font-bold text-slate-900"
                   />
                 </div>
@@ -861,7 +862,7 @@ export const SupplierView: React.FC = () => {
               <div className="p-3 bg-slate-100 rounded-2xl flex justify-between items-center text-sm font-bold">
                 <span className="text-slate-700">Total Nilai Pembelian:</span>
                 <span className="font-mono text-slate-900 text-base">
-                  {formatRupiah((parseFloat(entryQty) || 0) * (parseFloat(entryUnitPrice) || 0))}
+                  {formatRupiah((parseThousand(entryQty) || 0) * (parseThousand(entryUnitPrice) || 0))}
                 </span>
               </div>
 
@@ -1190,13 +1191,11 @@ export const SupplierView: React.FC = () => {
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Total Nominal Pembelian (Rp)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1000"
+                <FormattedNumberInput
                   required
                   value={editTotalAmount}
                   onChange={e => setEditTotalAmount(e.target.value)}
+                  placeholder="0"
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 font-mono font-bold"
                 />
               </div>

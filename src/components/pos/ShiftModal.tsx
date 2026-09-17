@@ -3,6 +3,7 @@ import { useStore } from '../../context/StoreContext';
 import { CashierShift } from '../../types';
 import { formatRupiah, formatDateTimeIndo } from '../../utils/formatters';
 import { Clock, DollarSign, AlertTriangle, CheckCircle, X, ShieldAlert } from 'lucide-react';
+import FormattedNumberInput from '../common/FormattedNumberInput';
 
 interface ShiftModalProps {
   isOpen: boolean;
@@ -167,9 +168,8 @@ export const ShiftModal: React.FC<ShiftModalProps> = ({ isOpen, onClose }) => {
                   <label className="block text-xs font-bold text-slate-800 mb-1">
                     Hitungan Uang Fisik Riil di Laci (Rp) *
                   </label>
-                  <input
+                  <FormattedNumberInput
                     id="input-actual-cash"
-                    type="number"
                     required
                     value={actualCashInput}
                     onChange={e => setActualCashInput(e.target.value)}
@@ -240,13 +240,12 @@ export const ShiftModal: React.FC<ShiftModalProps> = ({ isOpen, onClose }) => {
                 <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500 font-bold text-sm">
                   Rp
                 </span>
-                <input
+                <FormattedNumberInput
                   id="input-starting-cash"
-                  type="number"
                   required
                   value={startingCashInput}
                   onChange={e => setStartingCashInput(e.target.value)}
-                  placeholder="200000"
+                  placeholder="200.000"
                   className="w-full pl-11 pr-4 py-3 bg-white border border-slate-300 rounded-xl text-slate-900 font-mono font-bold text-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
               </div>

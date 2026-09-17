@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { User, OperationalExpense, Product } from '../../types';
-import { formatRupiah, formatDateTimeIndo } from '../../utils/formatters';
+import { formatRupiah, formatDateTimeIndo, parseThousand } from '../../utils/formatters';
+import FormattedNumberInput from '../common/FormattedNumberInput';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -120,7 +121,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   // Submit expense
   const handleSaveExpense = (e: React.FormEvent) => {
     e.preventDefault();
-    const amt = parseFloat(expAmount) || 0;
+    const amt = parseThousand(expAmount);
     if (amt <= 0) return;
 
     addExpense({
@@ -697,12 +698,11 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Nominal Pengeluaran (Rp) *
                 </label>
-                <input
-                  type="number"
+                <FormattedNumberInput
                   required
                   value={expAmount}
                   onChange={e => setExpAmount(e.target.value)}
-                  placeholder="50000"
+                  placeholder="50.000"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono font-bold text-slate-900"
                 />
               </div>

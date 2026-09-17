@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { PaymentMethod } from '../../types';
 import { formatRupiah } from '../../utils/formatters';
 import { Banknote, QrCode, CreditCard, Check, X, AlertCircle, Calendar } from 'lucide-react';
+import FormattedNumberInput from '../common/FormattedNumberInput';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -157,12 +158,15 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400 font-bold">
                     Rp
                   </span>
-                  <input
+                  <FormattedNumberInput
                     id="input-cash-given"
-                    type="number"
                     autoFocus
-                    value={customCashInput}
-                    onChange={e => handleCashChange(e.target.value)}
+                    value={cashGiven}
+                    onChangeValue={(num, rawStr) => {
+                      setCashGiven(num);
+                      setCustomCashInput(rawStr);
+                    }}
+                    placeholder="0"
                     className="w-full pl-11 pr-4 py-3 bg-white border border-slate-300 rounded-xl text-slate-900 font-mono font-bold text-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   />
                 </div>
