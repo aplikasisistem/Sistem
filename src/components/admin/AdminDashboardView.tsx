@@ -147,6 +147,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         password: uPassword.trim(),
         name: uName.trim(),
         role: uRole,
+        isActive: true,
       });
     } else {
       addUser({
@@ -154,6 +155,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         password: uPassword.trim(),
         name: uName.trim(),
         role: uRole,
+        isActive: true,
       });
     }
 

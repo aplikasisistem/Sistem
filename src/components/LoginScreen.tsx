@@ -16,7 +16,7 @@ export const LoginScreen: React.FC = () => {
     setIsLoading(true);
 
     setTimeout(() => {
-      const success = login(username, password);
+      const success = login(username.trim(), password.trim());
       setIsLoading(false);
       if (!success) {
         setErrorMsg('Username atau kata sandi tidak cocok! Silakan periksa kembali.');

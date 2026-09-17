@@ -237,11 +237,40 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Auth Functions
   const login = (username: string, pass: string): boolean => {
-    const found = users.find(u => u.username.toLowerCase() === username.trim().toLowerCase() && u.isActive);
-    if (found && (!found.password || found.password === pass)) {
-      setCurrentUser(found);
+    const cleanUser = username.trim().toLowerCase();
+    const cleanPass = pass.trim();
+
+    // 1. Check in state
+    const found = users.find(
+      u => u.username.trim().toLowerCase() === cleanUser && u.isActive !== false
+    );
+
+    // 2. Check INITIAL_USERS in case developer changed initialData.ts in source code
+    const initMatch = INITIAL_USERS.find(
+      u => u.username.trim().toLowerCase() === cleanUser
+    );
+
+    if (found) {
+      const dbPass = (found.password || '').trim();
+      if (!dbPass || dbPass === cleanPass) {
+        setCurrentUser(found);
+        return true;
+      }
+      // If stored password did not match, but initialData.ts has the updated password:
+      if (initMatch && (initMatch.password || '').trim() === cleanPass) {
+        const syncedUser: UserAccount = { ...found, password: cleanPass, isActive: true };
+        updateUser(syncedUser);
+        setCurrentUser(syncedUser);
+        return true;
+      }
+    } else if (initMatch && (initMatch.password || '').trim() === cleanPass) {
+      // User exists in initialData.ts with new credentials
+      const newUser: UserAccount = { ...initMatch, isActive: true };
+      addUser(newUser);
+      setCurrentUser(newUser);
       return true;
     }
+
     return false;
   };
 
@@ -250,7 +279,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const switchRoleQuick = (role: UserRole) => {
-    const found = users.find(u => u.role === role && u.isActive);
+    const found = users.find(u => u.role === role && u.isActive !== false);
     if (found) {
       setCurrentUser(found);
     }
@@ -258,21 +287,43 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const addUser = (userData: Omit<UserAccount, 'id'>) => {
     const newUser: UserAccount = {
+      isActive: true,
       ...userData,
       id: `usr_${Date.now()}`,
+      username: userData.username.trim(),
+      password: userData.password ? userData.password.trim() : userData.password,
     };
-    setUsers(prev => [...prev, newUser]);
+    setUsers(prev => {
+      const next = [...prev, newUser];
+      try { localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
   };
 
   const updateUser = (updated: UserAccount) => {
-    setUsers(prev => prev.map(u => (u.id === updated.id ? updated : u)));
-    if (currentUser && currentUser.id === updated.id) {
-      setCurrentUser(updated);
+    const sanitizedUser: UserAccount = {
+      isActive: true,
+      ...updated,
+      username: updated.username.trim(),
+      password: updated.password ? updated.password.trim() : updated.password,
+    };
+    setUsers(prev => {
+      const next = prev.map(u => (u.id === sanitizedUser.id ? sanitizedUser : u));
+      try { localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    if (currentUser && currentUser.id === sanitizedUser.id) {
+      setCurrentUser(sanitizedUser);
+      try { localStorage.setItem(STORAGE_KEYS.AUTH_USER, JSON.stringify(sanitizedUser)); } catch (e) {}
     }
   };
 
   const deleteUser = (id: string) => {
-    setUsers(prev => prev.filter(u => u.id !== id));
+    setUsers(prev => {
+      const next = prev.filter(u => u.id !== id);
+      try { localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
   };
 
   // Products
@@ -280,16 +331,51 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const newProd: Product = {
       ...pData,
       id: `prod_${Date.now()}`,
+      name: pData.name.trim(),
+      barcode: (pData.barcode || '').trim(),
+      category: pData.category ? pData.category.trim() : 'Lainnya',
+      baseUnit: pData.baseUnit || 'pcs',
+      stock: Number(pData.stock) || 0,
+      minStock: Number(pData.minStock) || 0,
+      costPrice: Number(pData.costPrice) || 0,
+      retailPrice: Number(pData.retailPrice) || 0,
+      wholesalePrice: Number(pData.wholesalePrice) || 0,
+      minWholesaleQty: Number(pData.minWholesaleQty) || 1,
     };
-    setProducts(prev => [newProd, ...prev]);
+    setProducts(prev => {
+      const next = [newProd, ...prev];
+      try { localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
   };
 
   const updateProduct = (p: Product) => {
-    setProducts(prev => prev.map(item => (item.id === p.id ? p : item)));
+    const sanitizedProd: Product = {
+      ...p,
+      name: p.name.trim(),
+      barcode: (p.barcode || '').trim(),
+      category: p.category ? p.category.trim() : 'Lainnya',
+      baseUnit: p.baseUnit || 'pcs',
+      stock: Number(p.stock) || 0,
+      minStock: Number(p.minStock) || 0,
+      costPrice: Number(p.costPrice) || 0,
+      retailPrice: Number(p.retailPrice) || 0,
+      wholesalePrice: Number(p.wholesalePrice) || 0,
+      minWholesaleQty: Number(p.minWholesaleQty) || 1,
+    };
+    setProducts(prev => {
+      const next = prev.map(item => (item.id === sanitizedProd.id ? sanitizedProd : item));
+      try { localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
   };
 
   const deleteProduct = (id: string) => {
-    setProducts(prev => prev.filter(p => p.id !== id));
+    setProducts(prev => {
+      const next = prev.filter(p => p.id !== id);
+      try { localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
   };
 
   const updateMasterPrices = (
@@ -300,19 +386,21 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     minWholesaleQty: number,
     boxWholesalePrice?: number
   ) => {
-    setProducts(prev =>
-      prev.map(p => {
+    setProducts(prev => {
+      const next = prev.map(p => {
         if (p.id !== id) return p;
         return {
           ...p,
-          costPrice,
-          retailPrice,
-          wholesalePrice,
-          minWholesaleQty,
-          boxWholesalePrice: boxWholesalePrice !== undefined ? boxWholesalePrice : p.boxWholesalePrice,
+          costPrice: Number(costPrice) || 0,
+          retailPrice: Number(retailPrice) || 0,
+          wholesalePrice: Number(wholesalePrice) || 0,
+          minWholesaleQty: Number(minWholesaleQty) || 1,
+          boxWholesalePrice: boxWholesalePrice !== undefined ? Number(boxWholesalePrice) : p.boxWholesalePrice,
         };
-      })
-    );
+      });
+      try { localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
   };
 
   // Cart Handlers
