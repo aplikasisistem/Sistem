@@ -230,7 +230,22 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const [products, setProducts] = useState<Product[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+    if (!saved) return INITIAL_PRODUCTS;
+    try {
+      const parsed: Product[] = JSON.parse(saved);
+      // Ensure seed products (like AQUA 8886008101053 and decimal scale products) exist
+      const missingSeeds = INITIAL_PRODUCTS.filter(
+        seed => !parsed.some(p => p.barcode === seed.barcode)
+      );
+      if (missingSeeds.length > 0) {
+        const merged = [...parsed, ...missingSeeds];
+        try { localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(merged)); } catch (e) {}
+        return merged;
+      }
+      return parsed;
+    } catch {
+      return INITIAL_PRODUCTS;
+    }
   });
 
   // Supabase Transactions state (No localStorage fallback)
@@ -1015,7 +1030,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (existingIndex >= 0) {
       const existing = products[existingIndex];
       const previousStock = Number(existing.stock) || 0;
-      const currentStock = previousStock + qtyToAdd;
+      const currentStock = Math.round((previousStock + qtyToAdd) * 1000) / 1000;
 
       const updatedProduct: Product = {
         ...existing,

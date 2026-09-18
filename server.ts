@@ -298,6 +298,7 @@ KEMBALIKAN HANYA OBJEK JSON MURNI (tanpa format markdown/code block):
     name: string;
     category: string;
     baseUnit: string;
+    allowDecimal?: boolean;
     stock: number;
     minStock: number;
     costPrice: number;
@@ -413,7 +414,8 @@ KEMBALIKAN HANYA OBJEK JSON MURNI (tanpa format markdown/code block):
     try {
       const rawBarcode = req.body.barcode || req.body.code || '';
       const cleanedBarcode = String(rawBarcode).replace(/[\r\n\t]/g, '').trim();
-      const addedQty = Math.max(1, Number(req.body.qty || req.body.quantity || 1));
+      const rawQty = parseFloat(String(req.body.qty || req.body.quantity || 1));
+      const addedQty = isNaN(rawQty) || rawQty <= 0 ? 1 : Math.round(rawQty * 1000) / 1000;
       const source = (req.body.source || 'camera_auto_scan') as 'camera_auto_scan' | 'manual_barcode' | 'batch_inbound';
       const userId = String(req.body.userId || 'usr_warehouse_admin');
       const userName = String(req.body.userName || 'Admin Gudang');
@@ -432,7 +434,7 @@ KEMBALIKAN HANYA OBJEK JSON MURNI (tanpa format markdown/code block):
 
       if (existingItem) {
         const previousStock = existingItem.stock;
-        existingItem.stock += addedQty;
+        existingItem.stock = Math.round((existingItem.stock + addedQty) * 1000) / 1000;
         const currentStock = existingItem.stock;
 
         // Create stock log
@@ -497,6 +499,7 @@ KEMBALIKAN HANYA OBJEK JSON MURNI (tanpa format markdown/code block):
         name,
         category = 'Lain-lain',
         baseUnit = 'pcs',
+        allowDecimal = false,
         stock = 1,
         minStock = 5,
         costPrice = 0,
@@ -518,13 +521,17 @@ KEMBALIKAN HANYA OBJEK JSON MURNI (tanpa format markdown/code block):
         });
       }
 
+      const rawStock = parseFloat(String(stock || 1));
+      const parsedStock = isNaN(rawStock) || rawStock <= 0 ? 1 : Math.round(rawStock * 1000) / 1000;
+
       const newProduct: WarehouseProductItem = {
         id: `prod_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         barcode: cleanedBarcode,
         name: cleanName,
         category: String(category).trim(),
         baseUnit: String(baseUnit).trim(),
-        stock: Math.max(1, Number(stock) || 1),
+        allowDecimal: Boolean(allowDecimal),
+        stock: parsedStock,
         minStock: Number(minStock) || 5,
         costPrice: Number(costPrice) || 0,
         retailPrice: Number(retailPrice) || 0,

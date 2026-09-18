@@ -25,7 +25,8 @@ import {
   Check,
   RefreshCw,
   Search,
-  Upload
+  Upload,
+  Scale
 } from 'lucide-react';
 import { BrowserMultiFormatReader } from '@zxing/library';
 import { KNOWN_BARCODES, getKnownProductByBarcode } from '../../data/knownBarcodes';
@@ -99,6 +100,13 @@ export const AutoStockScannerView: React.FC = () => {
     product: Product;
     detectedBarcode: string;
   } | null>(null);
+  const [activeDetectedProduct, setActiveDetectedProduct] = useState<{
+    product: Product;
+    detectedBarcode: string;
+  } | null>(() => {
+    const defaultProd = products.find(p => p.barcode === '8886008101053') || products[0] || null;
+    return defaultProd ? { product: defaultProd, detectedBarcode: defaultProd.barcode || '8886008101053' } : null;
+  });
   const [manualQtyInput, setManualQtyInput] = useState<string>('1');
   const [manualBatchInput, setManualBatchInput] = useState<string>('');
 
@@ -123,6 +131,7 @@ export const AutoStockScannerView: React.FC = () => {
   const [newProdName, setNewProdName] = useState('');
   const [newProdCategory, setNewProdCategory] = useState(categories[0] || 'Sembako');
   const [newProdUnit, setNewProdUnit] = useState<UnitType>('pcs');
+  const [newProdAllowDecimal, setNewProdAllowDecimal] = useState<boolean>(false);
   const [newProdInitialStock, setNewProdInitialStock] = useState('10');
   const [newProdCostPrice, setNewProdCostPrice] = useState('');
   const [newProdRetailPrice, setNewProdRetailPrice] = useState('');
@@ -147,7 +156,7 @@ export const AutoStockScannerView: React.FC = () => {
     return () => clearTimeout(t);
   }, [toastMessage]);
 
-  // Deteksi status barcode (Cukup mendeteksi & beri notifikasi, tanpa auto +1 stok)
+  // Deteksi status barcode (Mendeteksi produk di inventaris atau master barcode)
   const handleBarcodeDetect = useCallback((
     scannedCode: string,
     source: 'camera_auto_scan' | 'manual_barcode' = 'camera_auto_scan'
@@ -156,7 +165,7 @@ export const AutoStockScannerView: React.FC = () => {
     if (!cleanCode || isProcessing) return;
 
     // Cari produk di inventaris berdasarkan barcode atau ID
-    const existing = products.find(
+    let existing = products.find(
       p => (p.barcode && p.barcode.trim() === cleanCode) ||
            p.id === cleanCode ||
            p.name.toLowerCase() === cleanCode.toLowerCase()
@@ -164,6 +173,30 @@ export const AutoStockScannerView: React.FC = () => {
 
     // Cari di data master barcode teridentifikasi (seperti AQUA 600ml: 8886008101053)
     const known = getKnownProductByBarcode(cleanCode);
+
+    // Jika belum ada di state lokal tapi ada di master database, langsung daftarkan agar terdeteksi
+    if (!existing && known) {
+      const isDecimal = Boolean(known.allowDecimal || known.baseUnit === 'kg');
+      const autoRegisteredProduct: Product = {
+        id: `prod_${Date.now()}_${cleanCode}`,
+        barcode: cleanCode,
+        name: known.name,
+        category: known.category,
+        baseUnit: known.baseUnit,
+        allowDecimal: isDecimal,
+        stock: known.defaultQty || (isDecimal ? 25.5 : 24),
+        minStock: 10,
+        costPrice: known.costPrice || 2800,
+        retailPrice: known.retailPrice || 3500,
+        wholesalePrice: known.wholesalePrice || 3200,
+        minWholesaleQty: known.minWholesaleQty || 24,
+        hasMultiUnit: Boolean(known.packageCategory === 'Dus'),
+        boxUnitName: known.packageCategory === 'Dus' ? 'Dus' : undefined,
+        boxConversionRatio: known.packageCategory === 'Dus' ? 24 : undefined,
+      };
+      addProduct(autoRegisteredProduct);
+      existing = autoRegisteredProduct;
+    }
 
     if (existing) {
       // PRODUK SUDAH TERDAFTAR: Berikan nada beep & notifikasi berhasil
@@ -177,37 +210,22 @@ export const AutoStockScannerView: React.FC = () => {
 
       setToastMessage({
         type: 'success',
-        title: '✅ Produk Sudah Terdaftar: ' + existing.name,
-        desc: `Barcode ${cleanCode} terdaftar di inventaris gudang. Stok saat ini: ${existing.stock} ${existing.baseUnit}. Silakan masukkan kuantitas Qty manual.`,
+        title: '✅ Produk Terdeteksi: ' + existing.name,
+        desc: `Barcode ${cleanCode} • Kategori: ${existing.category} • Satuan: ${existing.baseUnit} • ${existing.allowDecimal ? 'Timbangan Desimal' : 'Satuan Kemasan Utuh'}. Silakan tentukan Qty masuk.`,
       });
 
-      // Buka dialog input kuantitas manual untuk produk ini
+      // Update produk aktif pada panel & buka dialog input kuantitas manual
       setPendingManualProduct({
         product: existing,
         detectedBarcode: cleanCode,
       });
-      setManualQtyInput('1');
+      setActiveDetectedProduct({
+        product: existing,
+        detectedBarcode: cleanCode,
+      });
+      setManualQtyInput(existing.allowDecimal ? '1' : '1');
       setManualBatchInput(batchNumber || '');
       setManualCode('');
-    } else if (known) {
-      // PRODUK TERIDENTIFIKASI DARI MASTER BARCODE / FOTO (AQUA 600ml)
-      if (soundEnabled) {
-        playBeep(880, 'sine', 0.12);
-      }
-      setUnregisteredBarcode(cleanCode);
-      setNewProdName(known.name);
-      setNewProdCategory(known.category);
-      setNewProdUnit(known.baseUnit);
-      setNewProdInitialStock(String(known.defaultQty || 24));
-      setNewProdCostPrice(String(known.costPrice || 2800));
-      setNewProdRetailPrice(String(known.retailPrice || 3500));
-      setIsRegisterModalOpen(true);
-
-      setToastMessage({
-        type: 'success',
-        title: '✅ Produk Teridentifikasi: ' + known.name,
-        desc: `Spesifikasi produk ${known.name} (${cleanCode}) berhasil diidentifikasi dari database master/foto. Silakan konfirmasi atau sesuaikan kuantitas manual.`,
-      });
     } else {
       // PRODUK BELUM TERDAFTAR: Berikan nada peringatan & buka modal pendaftaran cepat
       if (soundEnabled) {
@@ -215,6 +233,9 @@ export const AutoStockScannerView: React.FC = () => {
       }
       setUnregisteredBarcode(cleanCode);
       setNewProdName('');
+      setNewProdCategory(categories[0] || 'Sembako');
+      setNewProdUnit('pcs');
+      setNewProdAllowDecimal(false);
       setNewProdInitialStock('10');
       setNewProdCostPrice('');
       setNewProdRetailPrice('');
@@ -222,32 +243,79 @@ export const AutoStockScannerView: React.FC = () => {
 
       setToastMessage({
         type: 'warning',
-        title: '⚠️ Barcode Belum Terdaftar',
-        desc: `Barcode ${cleanCode} belum terdaftar di inventaris. Silakan daftarkan produk baru terlebih dahulu.`,
+        title: '⚠️ Barcode Belum Terdaftar: ' + cleanCode,
+        desc: `Barcode ${cleanCode} belum ada di stok. Silakan lengkapi nama barang, kategori satuan, jenis timbangan desimal, dan Qty masuk awal.`,
       });
     }
-  }, [products, soundEnabled, batchNumber, isProcessing]);
+  }, [products, soundEnabled, batchNumber, isProcessing, addProduct, categories]);
+
+  // Listener keyboard untuk scanner USB / Barcode Reader fisik
+  useEffect(() => {
+    let buffer = '';
+    let lastKeyTime = Date.now();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl &&
+        (activeEl.tagName === 'TEXTAREA' ||
+         (activeEl.tagName === 'INPUT' && (activeEl as HTMLInputElement).type === 'text' && activeEl !== manualInputRef.current))
+      ) {
+        return;
+      }
+
+      const now = Date.now();
+      const diff = now - lastKeyTime;
+      lastKeyTime = now;
+
+      if (e.key === 'Enter') {
+        if (buffer.trim().length >= 3) {
+          e.preventDefault();
+          const code = buffer.trim();
+          buffer = '';
+          handleBarcodeDetect(code, 'manual_barcode');
+        }
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (diff > 180) {
+          buffer = e.key;
+        } else {
+          buffer += e.key;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleBarcodeDetect]);
 
   // Simpan penambahan stok setelah user menginput Qty secara manual
-  const handleConfirmManualStock = async (e?: React.FormEvent) => {
+  const handleConfirmManualStock = async (e?: React.FormEvent, customQtyOverride?: number) => {
     if (e) e.preventDefault();
-    if (!pendingManualProduct || isProcessing) return;
+    const target = pendingManualProduct || activeDetectedProduct;
+    if (!target || isProcessing) return;
 
-    const qty = parseFloat(manualQtyInput);
-    if (isNaN(qty) || qty <= 0) {
+    const rawQty = customQtyOverride !== undefined ? customQtyOverride : parseFloat(manualQtyInput);
+    if (isNaN(rawQty) || rawQty <= 0) {
       setToastMessage({
         type: 'error',
         title: 'Kuantitas Tidak Valid',
-        desc: 'Masukkan kuantitas Qty minimal 1.',
+        desc: target.product.allowDecimal
+          ? 'Masukkan angka kuantitas desimal valid (contoh: 0.5 atau 2.5 kg).'
+          : 'Masukkan kuantitas Qty minimal 1 unit utuh.',
       });
       return;
     }
+
+    // Support desimal jika produk allowDecimal
+    const qty = target.product.allowDecimal
+      ? Math.round(rawQty * 1000) / 1000
+      : Math.max(1, Math.round(rawQty));
 
     setIsProcessing(true);
 
     try {
       const result = await autoInboundStockByBarcode({
-        barcode: pendingManualProduct.detectedBarcode,
+        barcode: target.detectedBarcode,
         addedQty: qty,
         batchNumber: manualBatchInput.trim() || undefined,
         source: 'manual_qty_after_scan',
@@ -264,7 +332,7 @@ export const AutoStockScannerView: React.FC = () => {
 
         setLastScannedResult({
           productName: result.product.name,
-          barcode: pendingManualProduct.detectedBarcode,
+          barcode: target.detectedBarcode,
           addedQty: qty,
           currentStock: result.currentStock ?? result.product.stock,
           unit: result.product.baseUnit,
@@ -533,7 +601,10 @@ export const AutoStockScannerView: React.FC = () => {
     e.preventDefault();
     if (!unregisteredBarcode.trim() || !newProdName.trim()) return;
 
-    const initialStock = Math.max(1, Number(newProdInitialStock) || 1);
+    const rawStock = parseFloat(newProdInitialStock);
+    const initialStock = isNaN(rawStock) || rawStock <= 0
+      ? 1
+      : (newProdAllowDecimal ? Math.round(rawStock * 1000) / 1000 : Math.max(1, Math.round(rawStock)));
     const cost = Math.max(0, Number(newProdCostPrice) || 0);
     const retail = Math.max(0, Number(newProdRetailPrice) || 0);
 
@@ -551,6 +622,7 @@ export const AutoStockScannerView: React.FC = () => {
           name: newProdName.trim(),
           category: newProdCategory,
           baseUnit: newProdUnit,
+          allowDecimal: newProdAllowDecimal,
           stock: initialStock,
           minStock: 5,
           costPrice: cost,
@@ -566,12 +638,13 @@ export const AutoStockScannerView: React.FC = () => {
       const data = await response.json();
 
       // Add to store context product list
-      addProduct({
+      const registeredProduct: Product = {
+        id: data?.product?.id || `prod_${Date.now()}_${unregisteredBarcode.trim()}`,
         name: newProdName.trim(),
         barcode: unregisteredBarcode.trim(),
         category: newProdCategory,
         baseUnit: newProdUnit,
-        allowDecimal: false,
+        allowDecimal: newProdAllowDecimal,
         stock: initialStock,
         minStock: 5,
         costPrice: cost,
@@ -579,12 +652,17 @@ export const AutoStockScannerView: React.FC = () => {
         wholesalePrice: retail,
         minWholesaleQty: 1,
         hasMultiUnit: false,
+      };
+      addProduct(registeredProduct);
+      setActiveDetectedProduct({
+        product: registeredProduct,
+        detectedBarcode: unregisteredBarcode.trim(),
       });
 
       setToastMessage({
         type: 'success',
         title: 'Produk Baru Terdaftar!',
-        desc: `${newProdName} berhasil ditambahkan dengan stok awal ${initialStock} ${newProdUnit}.`,
+        desc: `${newProdName} (${newProdAllowDecimal ? 'Timbangan Desimal' : 'Kemasan Utuh'}) berhasil ditambahkan dengan stok awal ${initialStock} ${newProdUnit}.`,
       });
 
       setLastScannedResult({
@@ -1030,66 +1108,36 @@ export const AutoStockScannerView: React.FC = () => {
 
         {/* Right Column: Auto-Focus Manual Input, Scanned Card & Inbound History */}
         <div className="lg:col-span-5 space-y-4">
-          {/* Card Hasil Identifikasi Barcode Foto (AQUA 600ml: 8886008101053) */}
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-3.5 sm:p-4 relative transition hover:border-teal-300/80">
-            <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100 mb-2.5">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-3.5 h-3.5" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900 leading-tight">
-                    Barcode Teridentifikasi
-                  </h3>
-                </div>
-                <span className="text-[10px] font-mono font-semibold text-teal-700 bg-teal-50 border border-teal-200/60 px-1.5 py-0.5 rounded">
-                  8886008101053
-                </span>
-              </div>
-              <label className="cursor-pointer px-2 py-1 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-lg text-[10px] font-medium transition flex items-center gap-1 border border-slate-200/70">
-                <Upload className="w-3 h-3 text-teal-600" />
-                <span>Foto Barcode</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handlePhotoFileUpload}
-                  className="hidden"
-                />
-              </label>
+          {/* Status Bar Scanner HP & Scanner USB */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-3 shadow-2xs flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2.5 w-2.5 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-teal-500"></span>
+              </span>
+              <span className="text-[11px] font-bold text-slate-800">
+                Mode Scan Gudang Aktif
+              </span>
             </div>
-
-            <div className="space-y-1 text-xs">
-              <p className="font-bold text-slate-900 text-xs sm:text-sm leading-snug">
-                AQUA Air Mineral Pegunungan 600ml
-              </p>
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                <span>Botol PET 600ml</span>
-                <span>•</span>
-                <span className="text-teal-700 font-medium">Minuman Kemasan</span>
-                <span>•</span>
-                <span>Danone AQUA</span>
-              </div>
+            <div className="flex items-center gap-2 text-[10px] text-slate-500 font-medium">
+              <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 font-semibold border border-teal-200/60">
+                📱 Kamera HP
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold border border-slate-200/60">
+                🔌 Scanner USB / BT
+              </span>
             </div>
-
-            <button
-              type="button"
-              onClick={() => handleBarcodeDetect('8886008101053', 'manual_barcode')}
-              className="w-full mt-2.5 py-2 px-3 bg-slate-900 hover:bg-teal-600 active:scale-98 text-white rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5 shadow-2xs"
-            >
-              <Check className="w-3.5 h-3.5" />
-              <span>Input Qty Produk Ini</span>
-            </button>
           </div>
 
-          {/* Manual Input Card (Auto-Focused) */}
-          <div className="bg-white rounded-2xl border border-slate-200/70 shadow-2xs p-4 space-y-2.5">
+          {/* Manual Input Card (Auto-Focused for USB Scanner & Typing) */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-4 space-y-2.5">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                 <Barcode className="w-3.5 h-3.5 text-teal-600" />
-                Input Manual / Scanner USB
+                Input Barcode / Scanner USB
               </h2>
-              <span className="text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                Auto-Focus Aktif
+              <span className="text-[10px] font-medium text-teal-700 bg-teal-50 border border-teal-200/60 px-2 py-0.5 rounded-full">
+                Auto-Focus Siap Scan
               </span>
             </div>
 
@@ -1100,26 +1148,248 @@ export const AutoStockScannerView: React.FC = () => {
                   type="text"
                   value={manualCode}
                   onChange={handleManualInputChange}
-                  placeholder="Ketik kode barcode / scan barcode scanner..."
-                  className="w-full pl-3 pr-20 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-mono text-xs font-semibold placeholder-slate-400 focus:outline-hidden focus:border-teal-600 focus:bg-white focus:ring-2 focus:ring-teal-500/10 transition"
+                  placeholder="Scan barcode via scanner USB atau ketik kode..."
+                  className="w-full pl-3 pr-20 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-mono text-xs font-bold placeholder-slate-400 focus:outline-hidden focus:border-teal-600 focus:bg-white focus:ring-2 focus:ring-teal-500/15 transition"
                 />
                 <button
                   type="submit"
                   disabled={!manualCode.trim() || isProcessing}
-                  className="absolute right-1 top-1 bottom-1 px-3 bg-slate-900 hover:bg-teal-600 disabled:opacity-40 text-white rounded-lg text-xs font-medium transition flex items-center gap-1"
+                  className="absolute right-1 top-1 bottom-1 px-3 bg-slate-900 hover:bg-teal-600 disabled:opacity-40 text-white rounded-lg text-xs font-medium transition flex items-center gap-1 cursor-pointer"
                 >
                   {isProcessing ? (
                     <RotateCw className="w-3 h-3 animate-spin" />
                   ) : (
                     <>
-                      <span>Input</span>
+                      <span>Deteksi</span>
                       <ArrowRight className="w-3 h-3" />
                     </>
                   )}
                 </button>
               </div>
             </form>
+
+            {/* Quick Test Barcode Pills */}
+            <div className="pt-1">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-medium text-slate-400">Pintasan Uji Barcode:</span>
+                <label className="cursor-pointer text-[10px] text-teal-600 hover:text-teal-700 font-medium flex items-center gap-1">
+                  <Upload className="w-2.5 h-2.5" />
+                  <span>Foto Barcode</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleBarcodeDetect('8886008101053', 'manual_barcode')}
+                  className="px-2 py-1 rounded-lg bg-teal-50/80 hover:bg-teal-100 border border-teal-200/70 text-[10px] font-semibold text-teal-900 transition flex items-center gap-1"
+                >
+                  <span>💧 AQUA 600ml</span>
+                  <span className="font-mono text-[9px] text-teal-600">8886008101053</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBarcodeDetect('8991007', 'manual_barcode')}
+                  className="px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200/70 text-[10px] font-semibold text-amber-900 transition flex items-center gap-1"
+                >
+                  <Scale className="w-2.5 h-2.5 text-amber-600" />
+                  <span>Telur Curah (Desimal)</span>
+                  <span className="font-mono text-[9px] text-amber-600">8991007</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBarcodeDetect('8991001', 'manual_barcode')}
+                  className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/70 text-[10px] font-semibold text-emerald-900 transition flex items-center gap-1"
+                >
+                  <Scale className="w-2.5 h-2.5 text-emerald-600" />
+                  <span>Beras (Desimal)</span>
+                  <span className="font-mono text-[9px] text-emerald-600">8991001</span>
+                </button>
+              </div>
+            </div>
           </div>
+
+          {/* Card Hasil Deteksi Otomatis (Menampilkan 5 Fitur Permintaan User) */}
+          {activeDetectedProduct && (
+            <div className="bg-white rounded-2xl border-2 border-teal-500/80 shadow-md shadow-teal-500/5 p-4 space-y-3 relative overflow-hidden transition">
+              <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-teal-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-[9px] uppercase tracking-wider font-extrabold text-teal-700 bg-teal-50 border border-teal-200/60 px-1.5 py-0.5 rounded">
+                      Deteksi Stok Otomatis
+                    </span>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Data produk berhasil diverifikasi dari database
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingManualProduct(activeDetectedProduct);
+                    setManualQtyInput(activeDetectedProduct.product.allowDecimal ? '1' : '1');
+                  }}
+                  className="text-[11px] font-bold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 px-2 py-1 rounded-lg border border-teal-200/60 transition"
+                >
+                  Buka Dialog
+                </button>
+              </div>
+
+              {/* 5 Fitur Utama Sesuai Permintaan */}
+              <div className="space-y-2.5 text-xs">
+                {/* 1. Nama Barang */}
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
+                    1. Nama Barang
+                  </span>
+                  <p className="font-black text-slate-900 text-sm leading-snug mt-0.5">
+                    {activeDetectedProduct.product.name}
+                  </p>
+                </div>
+
+                {/* 2. Barcode / Kode Barang & 3. Kategori Satuan */}
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/70">
+                    <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
+                      2. Barcode / Kode
+                    </span>
+                    <span className="font-mono font-bold text-slate-800 text-xs mt-0.5 block truncate">
+                      {activeDetectedProduct.detectedBarcode}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/70">
+                    <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
+                      3. Kategori Satuan
+                    </span>
+                    <div className="mt-0.5 flex items-center gap-1">
+                      <span className="font-bold text-slate-800 truncate">
+                        {activeDetectedProduct.product.category || 'Umum'}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium shrink-0">
+                        • {activeDetectedProduct.product.baseUnit}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Status Barang Timbangan Desimal */}
+                <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
+                  activeDetectedProduct.product.allowDecimal
+                    ? 'bg-amber-50/70 border-amber-200/80 text-amber-950'
+                    : 'bg-slate-50 border-slate-200/70 text-slate-800'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {activeDetectedProduct.product.allowDecimal ? (
+                      <div className="w-6 h-6 rounded-md bg-amber-500 text-white flex items-center justify-center shrink-0">
+                        <Scale className="w-3.5 h-3.5" />
+                      </div>
+                    ) : (
+                      <div className="w-6 h-6 rounded-md bg-slate-200 text-slate-700 flex items-center justify-center shrink-0">
+                        <Package className="w-3.5 h-3.5" />
+                      </div>
+                    )}
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider block opacity-75">
+                        4. Barang Timbangan Desimal
+                      </span>
+                      <span className="font-extrabold text-xs">
+                        {activeDetectedProduct.product.allowDecimal
+                          ? 'Timbangan Desimal (Mendukung Pecahan / Koma)'
+                          : 'Bukan Timbangan (Satuan Kemasan Utuh)'}
+                      </span>
+                    </div>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                    activeDetectedProduct.product.allowDecimal
+                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                      : 'bg-slate-200/70 text-slate-700'
+                  }`}>
+                    {activeDetectedProduct.product.allowDecimal ? 'Desimal Aktif' : 'Bulat Utuh'}
+                  </span>
+                </div>
+
+                {/* 5. Input Qty Masuk Langsung */}
+                <div className="pt-2 border-t border-slate-100 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                      5. Qty Masuk Gudang ({activeDetectedProduct.product.baseUnit})
+                    </span>
+                    <span className="text-[11px] text-slate-500">
+                      Stok Sekarang: <strong className="text-slate-800">{activeDetectedProduct.product.stock} {activeDetectedProduct.product.baseUnit}</strong>
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      step={activeDetectedProduct.product.allowDecimal ? '0.01' : '1'}
+                      min={activeDetectedProduct.product.allowDecimal ? '0.01' : '1'}
+                      value={manualQtyInput}
+                      onChange={e => setManualQtyInput(e.target.value)}
+                      placeholder={activeDetectedProduct.product.allowDecimal ? 'Contoh: 2.5' : 'Contoh: 24'}
+                      className="w-28 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-black text-center text-slate-900 focus:outline-hidden focus:border-teal-500 focus:bg-white"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmManualStock()}
+                      disabled={isProcessing}
+                      className="flex-1 py-2 px-3 bg-teal-600 hover:bg-teal-700 active:scale-98 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                    >
+                      {isProcessing ? (
+                        <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Plus className="w-3.5 h-3.5" />
+                      )}
+                      <span>Simpan Masuk (+{manualQtyInput || '0'})</span>
+                    </button>
+                  </div>
+
+                  {/* Shortcut Qty Buttons */}
+                  <div className="flex flex-wrap gap-1 pt-0.5">
+                    {activeDetectedProduct.product.allowDecimal
+                      ? [0.5, 1, 2.5, 5, 10, 25].map(val => (
+                          <button
+                            key={val}
+                            type="button"
+                            onClick={() => setManualQtyInput(String(val))}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition ${
+                              manualQtyInput === String(val)
+                                ? 'bg-amber-600 text-white border-amber-600'
+                                : 'bg-slate-50 text-slate-700 hover:bg-amber-50 border-slate-200'
+                            }`}
+                          >
+                            +{val} {activeDetectedProduct.product.baseUnit}
+                          </button>
+                        ))
+                      : [1, 5, 12, 24, 48, 100].map(val => (
+                          <button
+                            key={val}
+                            type="button"
+                            onClick={() => setManualQtyInput(String(val))}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition ${
+                              manualQtyInput === String(val)
+                                ? 'bg-teal-600 text-white border-teal-600'
+                                : 'bg-slate-50 text-slate-700 hover:bg-teal-50 border-slate-200'
+                            }`}
+                          >
+                            +{val}
+                          </button>
+                        ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Last Scanned Result Card */}
           {lastScannedResult && (
@@ -1330,12 +1600,18 @@ export const AutoStockScannerView: React.FC = () => {
                   <label className="block text-xs font-bold text-slate-700 mb-1">Satuan Dasar</label>
                   <select
                     value={newProdUnit}
-                    onChange={e => setNewProdUnit(e.target.value as UnitType)}
+                    onChange={e => {
+                      const u = e.target.value as UnitType;
+                      setNewProdUnit(u);
+                      if (u === 'kg') {
+                        setNewProdAllowDecimal(true);
+                      }
+                    }}
                     className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:outline-hidden focus:border-teal-600"
                   >
                     <option value="pcs">pcs</option>
                     <option value="pouch">pouch</option>
-                    <option value="kg">kg</option>
+                    <option value="kg">kg (Timbangan)</option>
                     <option value="liter">liter</option>
                     <option value="dus">dus</option>
                     <option value="renceng">renceng</option>
@@ -1344,16 +1620,54 @@ export const AutoStockScannerView: React.FC = () => {
                 </div>
               </div>
 
+              {/* Fitur 4: Barang Timbangan Desimal Toggle */}
+              <div className="p-3 rounded-2xl border border-slate-200 bg-slate-50 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                      newProdAllowDecimal ? 'bg-amber-500 text-white' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      <Scale className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-black text-slate-900 block leading-tight">
+                        Barang Timbangan Desimal
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        {newProdAllowDecimal
+                          ? 'Dapat menerima angka pecahan / koma (contoh: 0.5 kg, 2.75 kg)'
+                          : 'Hanya menerima bilangan bulat utuh (contoh: 1 pcs, 24 botol)'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setNewProdAllowDecimal(prev => !prev)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                      newProdAllowDecimal
+                        ? 'bg-amber-500 text-white shadow-xs'
+                        : 'bg-white border border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    {newProdAllowDecimal ? 'Ya (Desimal)' : 'Tidak (Utuh)'}
+                  </button>
+                </div>
+              </div>
+
               {/* Initial Stock & Prices */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Stok Awal *</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Stok Awal ({newProdUnit}) *
+                  </label>
                   <input
                     type="number"
-                    min="1"
+                    step={newProdAllowDecimal ? '0.01' : '1'}
+                    min={newProdAllowDecimal ? '0.01' : '1'}
                     required
                     value={newProdInitialStock}
                     onChange={e => setNewProdInitialStock(e.target.value)}
+                    placeholder={newProdAllowDecimal ? '10.5' : '10'}
                     className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900"
                   />
                 </div>
@@ -1393,7 +1707,7 @@ export const AutoStockScannerView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition shadow-md shadow-teal-600/20 flex items-center gap-1.5"
+                  className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition shadow-md shadow-teal-600/20 flex items-center gap-1.5 cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Daftarkan & Tambah Stok</span>
@@ -1407,16 +1721,16 @@ export const AutoStockScannerView: React.FC = () => {
       {/* MANUAL QUANTITY INPUT MODAL (AFTER PRODUCT REGISTRATION DETECTED) */}
       {pendingManualProduct && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95">
+          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95">
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+            <div className="flex items-center justify-between pb-3.5 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-teal-50 text-teal-700 flex items-center justify-center border border-teal-200">
+                <div className="w-10 h-10 rounded-2xl bg-teal-50 text-teal-700 flex items-center justify-center border border-teal-200 shadow-2xs">
                   <CheckCircle2 className="w-5 h-5 text-teal-600" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-slate-900">Produk Terdaftar!</h3>
-                  <p className="text-xs text-slate-500">Tentukan kuantitas stok masuk secara manual</p>
+                  <h3 className="text-base font-black text-slate-900">Produk Terdeteksi!</h3>
+                  <p className="text-xs text-slate-500">Silakan konfirmasi kuantitas Qty stok masuk</p>
                 </div>
               </div>
               <button
@@ -1431,71 +1745,126 @@ export const AutoStockScannerView: React.FC = () => {
               </button>
             </div>
 
-            {/* Product Summary Card */}
-            <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-2">
-              <div className="flex items-start justify-between gap-2">
+            {/* 5 Fitur Utama: Deteksi Data Barang */}
+            <div className="mt-3.5 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
+              {/* 1. Nama Barang */}
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
+                  1. Nama Barang
+                </span>
+                <h4 className="text-sm font-black text-slate-900 mt-0.5 leading-snug">
+                  {pendingManualProduct.product.name}
+                </h4>
+              </div>
+
+              {/* 2. Barcode & 3. Kategori Satuan */}
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/60">
                 <div>
-                  <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wider bg-teal-100/70 px-2 py-0.5 rounded-md">
-                    {pendingManualProduct.product.category || 'Barang Toko'}
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
+                    2. Barcode / Kode
                   </span>
-                  <h4 className="text-sm font-black text-slate-900 mt-1">
-                    {pendingManualProduct.product.name}
-                  </h4>
+                  <span className="font-mono font-bold text-slate-800 text-xs truncate block mt-0.5">
+                    {pendingManualProduct.detectedBarcode}
+                  </span>
                 </div>
-                <div className="text-right shrink-0">
-                  <span className="text-[10px] text-slate-400 block">Stok Gudang:</span>
-                  <span className="font-extrabold text-xs text-slate-800">
-                    {pendingManualProduct.product.stock} {pendingManualProduct.product.baseUnit}
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
+                    3. Kategori Satuan
+                  </span>
+                  <span className="font-bold text-slate-800 text-xs block mt-0.5 truncate">
+                    {pendingManualProduct.product.category} • {pendingManualProduct.product.baseUnit}
                   </span>
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs font-mono text-slate-500">
-                <span>Barcode:</span>
-                <span className="font-bold text-slate-700">{pendingManualProduct.detectedBarcode}</span>
+              {/* 4. Status Barang Timbangan Desimal */}
+              <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
+                pendingManualProduct.product.allowDecimal
+                  ? 'bg-amber-50/80 border-amber-200/80 text-amber-950'
+                  : 'bg-white border-slate-200 text-slate-800'
+              }`}>
+                <div className="flex items-center gap-2">
+                  {pendingManualProduct.product.allowDecimal ? (
+                    <Scale className="w-4 h-4 text-amber-600 shrink-0" />
+                  ) : (
+                    <Package className="w-4 h-4 text-slate-500 shrink-0" />
+                  )}
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider block opacity-75">
+                      4. Jenis Timbangan
+                    </span>
+                    <span className="font-bold text-xs">
+                      {pendingManualProduct.product.allowDecimal
+                        ? 'Timbangan Desimal (Koma/Pecahan)'
+                        : 'Kemasan Utuh (Bilangan Bulat)'}
+                    </span>
+                  </div>
+                </div>
+                <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md ${
+                  pendingManualProduct.product.allowDecimal
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-slate-100 text-slate-700'
+                }`}>
+                  {pendingManualProduct.product.allowDecimal ? 'Desimal' : 'Utuh'}
+                </span>
               </div>
             </div>
 
-            {/* Manual Qty Input Form */}
-            <form onSubmit={handleConfirmManualStock} className="space-y-4 mt-4">
+            {/* 5. Manual Qty Input Form */}
+            <form onSubmit={handleConfirmManualStock} className="space-y-3.5 mt-3.5">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
-                  <span>Jumlah / Kuantitas Masuk (Qty) *</span>
+                  <span>5. Jumlah / Qty Masuk *</span>
                   <span className="text-[11px] font-normal text-slate-500">
-                    Satuan: <strong className="text-slate-800 font-bold">{pendingManualProduct.product.baseUnit}</strong>
+                    Satuan: <strong className="text-slate-900 font-bold">{pendingManualProduct.product.baseUnit}</strong>
                   </span>
                 </label>
 
                 <div className="relative">
                   <input
                     type="number"
-                    min="1"
-                    step="1"
+                    min={pendingManualProduct.product.allowDecimal ? '0.01' : '1'}
+                    step={pendingManualProduct.product.allowDecimal ? '0.01' : '1'}
                     required
                     autoFocus
                     value={manualQtyInput}
                     onChange={e => setManualQtyInput(e.target.value)}
-                    placeholder="Masukkan Qty..."
+                    placeholder={pendingManualProduct.product.allowDecimal ? 'Contoh: 2.5' : 'Contoh: 24'}
                     className="w-full px-4 py-3 bg-white border-2 border-teal-500 rounded-2xl text-center text-2xl font-black text-slate-900 focus:outline-hidden focus:ring-4 focus:ring-teal-500/10"
                   />
                 </div>
 
                 {/* Quick Add Buttons */}
-                <div className="grid grid-cols-6 gap-1.5 mt-2">
-                  {[1, 5, 10, 20, 50, 100].map(val => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => setManualQtyInput(String(val))}
-                      className={`py-1.5 rounded-xl text-xs font-bold border transition ${
-                        manualQtyInput === String(val)
-                          ? 'bg-teal-600 border-teal-600 text-white shadow-2xs'
-                          : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-teal-50'
-                      }`}
-                    >
-                      +{val}
-                    </button>
-                  ))}
+                <div className="grid grid-cols-6 gap-1 mt-2">
+                  {pendingManualProduct.product.allowDecimal
+                    ? [0.5, 1, 2.5, 5, 10, 25].map(val => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setManualQtyInput(String(val))}
+                          className={`py-1.5 rounded-xl text-[11px] font-bold border transition ${
+                            manualQtyInput === String(val)
+                              ? 'bg-amber-600 border-amber-600 text-white shadow-2xs'
+                              : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-amber-50'
+                          }`}
+                        >
+                          +{val}
+                        </button>
+                      ))
+                    : [1, 5, 10, 20, 50, 100].map(val => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setManualQtyInput(String(val))}
+                          className={`py-1.5 rounded-xl text-[11px] font-bold border transition ${
+                            manualQtyInput === String(val)
+                              ? 'bg-teal-600 border-teal-600 text-white shadow-2xs'
+                              : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-teal-50'
+                          }`}
+                        >
+                          +{val}
+                        </button>
+                      ))}
                 </div>
               </div>
 
@@ -1514,12 +1883,22 @@ export const AutoStockScannerView: React.FC = () => {
               </div>
 
               {/* Stock Preview Calculation */}
-              <div className="p-3 bg-teal-50/70 border border-teal-100 rounded-xl text-xs flex items-center justify-between">
-                <span className="text-teal-900 font-medium">Estimasi Stok Akhir:</span>
-                <span className="font-black text-teal-800">
-                  {Math.max(0, (pendingManualProduct.product.stock || 0) + (parseFloat(manualQtyInput) || 0))}{' '}
-                  {pendingManualProduct.product.baseUnit}
-                </span>
+              <div className="p-3 bg-teal-50/80 border border-teal-100 rounded-xl text-xs flex items-center justify-between">
+                <div>
+                  <span className="text-teal-950 font-medium block">
+                    Stok Saat Ini: {pendingManualProduct.product.stock} {pendingManualProduct.product.baseUnit}
+                  </span>
+                  <span className="text-[11px] text-teal-700">
+                    + Tambah: {parseFloat(manualQtyInput) || 0} {pendingManualProduct.product.baseUnit}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-teal-700 block uppercase font-bold">Total Akhir:</span>
+                  <span className="font-black text-sm text-teal-900">
+                    {Math.round(((pendingManualProduct.product.stock || 0) + (parseFloat(manualQtyInput) || 0)) * 1000) / 1000}{' '}
+                    {pendingManualProduct.product.baseUnit}
+                  </span>
+                </div>
               </div>
 
               {/* Actions */}
@@ -1544,7 +1923,7 @@ export const AutoStockScannerView: React.FC = () => {
                   ) : (
                     <Plus className="w-4 h-4" />
                   )}
-                  <span>Simpan & Tambah Stok</span>
+                  <span>Simpan Masuk (+{manualQtyInput || '0'})</span>
                 </button>
               </div>
             </form>
