@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ALUNK STORE - Point of Sale (POS) Barcode Cashier</title>
+  <!-- Tailwind CSS CDN for instant styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .font-mono-receipt {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Print-specific CSS: Only show thermal receipt, hide all application UI */
+    @media print {
+      /* Hide all elements by default */
+      body * {
+        visibility: hidden !important;
+      }
+      
+      /* Make receipt container visible and positioned at top-left */
+      #thermal-receipt,
+      #thermal-receipt * {
+        visibility: visible !important;
+      }
+
+      #thermal-receipt {
+        position: fixed !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 78mm !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 4mm 2mm !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 11px !important;
+        line-height: 1.35 !important;
+        display: block !important;
+      }
+
+      /* Hide print trigger buttons or screen-only helpers inside receipt */
+      .no-print {
+        display: none !important;
+      }
+
+      @page {
+        margin: 0;
+        size: auto;
+      }
+    }
+
+    /* Screen display: receipt container is hidden until printed or previewed */
+    #thermal-receipt {
+      display: none;
+    }
+    #thermal-receipt.screen-preview {
+      display: block;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 selection:bg-emerald-500 selection:text-white pb-12">
+
+  <!-- TOP HEADER -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-md shadow-emerald-600/20 font-black text-lg">
+          AS
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight">ALUNK STORE</h1>
+            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">
+              POS Barcode v2.0
+            </span>
+          </div>
+          <p class="text-xs text-slate-500">Sistem Kasir Pemindai Barcode Cepat & Cetak Struk Otomatis</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <div class="hidden sm:flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-slate-600">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span id="current-clock" class="font-mono">--:--:--</span>
+        </div>
+        <a href="/" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all flex items-center gap-1">
+          &larr; Menu Utama
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+    <!-- ALERT / NOTIFICATION BANNER (Auto dismiss) -->
+    <div id="alert-banner" class="hidden p-4 rounded-2xl border text-sm font-semibold flex items-center justify-between shadow-xs transition-all">
+      <div class="flex items-center gap-2.5">
+        <span id="alert-icon" class="text-lg"></span>
+        <span id="alert-message"></span>
+      </div>
+      <button type="button" onclick="hideAlert()" class="text-slate-400 hover:text-slate-600 text-xs font-bold px-2 py-1">
+        Tutup
+      </button>
+    </div>
+
+    <!-- SCANNER BARCODE INPUT CARD -->
+    <section class="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
+            <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path>
+            </svg>
+            <span>Scan Barcode / Input Kode Barang</span>
+          </h2>
+          <p class="text-xs text-slate-500">
+            Arahkan scanner ke barcode atau ketik kode barang lalu tekan <kbd class="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded text-[11px] font-mono">Enter</kbd>. Produk langsung otomatis masuk ke keranjang tanpa perlu klik manual.
+          </p>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            onclick="openCameraScannerModal()"
+            class="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 px-3.5 py-2 rounded-xl transition shadow-sm cursor-pointer active:scale-95"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            </svg>
+            <span>Scan Kamera HP</span>
+          </button>
+          <span class="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+            Scanner Siap (Auto-Focus Aktif)
+          </span>
+        </div>
+      </div>
+
+      <!-- BARCODE FORM -->
+      <form id="barcode-form" onsubmit="handleBarcodeSubmit(event)" class="relative">
+        <div class="relative flex items-center">
+          <div class="absolute left-4 text-slate-400 pointer-events-none">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path>
+            </svg>
+          </div>
+          <input
+            id="barcode-input"
+            type="text"
+            autofocus
+            autocomplete="off"
+            placeholder="Ketik / Scan Barcode (Contoh: 8991001, 8991002)..."
+            class="w-full pl-13 pr-28 py-4 bg-slate-50 border-2 border-emerald-500 rounded-2xl text-base sm:text-lg font-mono font-bold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-600 transition-all shadow-inner"
+          />
+          <button
+            type="submit"
+            class="absolute right-2.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-md shadow-emerald-700/20 cursor-pointer flex items-center gap-1.5"
+          >
+            <span>Scan (Enter)</span>
+          </button>
+        </div>
+      </form>
+
+      <!-- QUICK SAMPLE CODE CHIPS -->
+      <div class="pt-1">
+        <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+          Uji Coba Cepat (Klik kode produk untuk simulasi scan):
+        </p>
+        <div id="sample-codes-container" class="flex flex-wrap gap-1.5">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </section>
+
+    <!-- MAIN TWO-COLUMN GRID: CART TABLE (LEFT) & PAYMENT SUMMARY (RIGHT) -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+      <!-- LEFT: CART & TRANSACTION TABLE (8 COLS) -->
+      <section class="lg:col-span-8 bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div class="p-5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h3 class="text-base font-extrabold text-slate-900 flex items-center gap-2">
+              <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
+              </svg>
+              <span>Daftar Transaksi Aktif (Keranjang Kasir)</span>
+            </h3>
+            <p class="text-xs text-slate-500">Daftar item yang berhasil discan</p>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <span id="cart-item-badge" class="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold text-xs border border-emerald-200">
+              0 Item
+            </span>
+            <button
+              type="button"
+              onclick="clearCart()"
+              class="px-3 py-1 bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-600 rounded-lg text-xs font-bold transition-all border border-slate-200"
+            >
+              Kosongkan Keranjang
+            </button>
+          </div>
+        </div>
+
+        <!-- TABLE CONTAINER -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs sm:text-sm">
+            <thead class="bg-slate-50/80 text-slate-600 uppercase text-[11px] font-extrabold border-b border-slate-200 tracking-wider">
+              <tr>
+                <th class="py-3 px-4">Kode</th>
+                <th class="py-3 px-4">Nama Barang</th>
+                <th class="py-3 px-4 text-right">Harga Satuan</th>
+                <th class="py-3 px-4 text-center">Jumlah (Qty)</th>
+                <th class="py-3 px-4 text-right">Subtotal</th>
+                <th class="py-3 px-4 text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="cart-table-body" class="divide-y divide-slate-100">
+              <!-- Empty state default -->
+              <tr>
+                <td colspan="6" class="py-12 text-center text-slate-400">
+                  <div class="w-12 h-12 mx-auto mb-2 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
+                    </svg>
+                  </div>
+                  <p class="font-bold text-slate-700 text-sm">Keranjang Masih Kosong</p>
+                  <p class="text-xs text-slate-400 mt-0.5">Scan barcode produk untuk mulai mencatat transaksi</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- RIGHT: PAYMENT & PRINT RECEIPT SUMMARY (4 COLS) -->
+      <section class="lg:col-span-4 space-y-4">
+        <div class="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
+          <div>
+            <h3 class="text-base font-extrabold text-slate-900">Ringkasan Pembayaran</h3>
+            <p class="text-xs text-slate-500">Hitung total belanja dan kembalian</p>
+          </div>
+
+          <!-- GRAND TOTAL DISPLAY -->
+          <div class="p-4 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-md shadow-emerald-700/20">
+            <span class="text-[11px] uppercase tracking-wider font-bold text-emerald-100 block">Total Tagihan (Grand Total)</span>
+            <div id="display-grand-total" class="text-2xl sm:text-3xl font-black font-mono tracking-tight mt-1">
+              Rp 0
+            </div>
+          </div>
+
+          <!-- CASH TENDERED INPUT -->
+          <div class="space-y-2">
+            <label class="block text-xs font-bold text-slate-700">Uang Diterima / Bayar Tunai (Rp):</label>
+            <input
+              id="cash-input"
+              type="number"
+              min="0"
+              step="1000"
+              placeholder="Contoh: 50000"
+              oninput="handleCashInput()"
+              class="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl font-mono text-base font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
+            />
+
+            <!-- QUICK MONEY BUTTONS -->
+            <div class="grid grid-cols-3 gap-1.5 pt-1">
+              <button type="button" onclick="setCashExact()" class="py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg transition-all">
+                Uang Pas
+              </button>
+              <button type="button" onclick="addCashQuick(20000)" class="py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg transition-all">
+                20.000
+              </button>
+              <button type="button" onclick="addCashQuick(50000)" class="py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg transition-all">
+                50.000
+              </button>
+              <button type="button" onclick="addCashQuick(100000)" class="py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg transition-all">
+                100.000
+              </button>
+              <button type="button" onclick="addCashQuick(200000)" class="py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg transition-all">
+                200.000
+              </button>
+              <button type="button" onclick="clearCash()" class="py-1.5 px-2 bg-slate-100 hover:bg-rose-100 hover:text-rose-700 text-slate-500 font-bold text-[11px] rounded-lg transition-all">
+                Reset
+              </button>
+            </div>
+          </div>
+
+          <!-- CHANGE (KEMBALIAN) -->
+          <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-600">Kembalian:</span>
+            <span id="display-change" class="text-lg font-black font-mono text-emerald-700">Rp 0</span>
+          </div>
+
+          <!-- BUTTON: BAYAR & CETAK STRUK (PRINT RECEIPT) -->
+          <div class="space-y-2 pt-2">
+            <button
+              id="btn-print-receipt"
+              type="button"
+              onclick="handlePrintReceipt()"
+              class="w-full py-4 bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white font-black text-sm sm:text-base rounded-2xl transition-all shadow-lg shadow-emerald-700/25 cursor-pointer flex items-center justify-center gap-2"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+              </svg>
+              <span>Bayar & Cetak Struk (F9 / Print)</span>
+            </button>
+
+            <button
+              type="button"
+              onclick="toggleReceiptPreviewModal()"
+              class="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5"
+            >
+              <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+              </svg>
+              <span>Lihat Format Struk Thermal</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- MOCK DATABASE INFO -->
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 text-xs text-slate-500 space-y-1.5">
+          <p class="font-bold text-slate-700 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            Mockup Database Terpasang: <span id="total-mock-products" class="text-slate-900 font-extrabold"></span> Produk
+          </p>
+          <p class="text-[11px] text-slate-400">
+            Sistem otomatis menambah jumlah (Qty + 1) jika barang yang sama discan ulang. Tekan Esc untuk reset input scanner.
+          </p>
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+
+  <!-- ============================================================== -->
+  <!-- THERMAL PAPER RECEIPT (CETAK STRUK 58mm/80mm FORMAT)          -->
+  <!-- ============================================================== -->
+  <div id="thermal-receipt" class="bg-white text-black p-2 font-mono-receipt text-xs leading-tight">
+    <!-- Store Header -->
+    <div class="text-center pb-2 border-b border-dashed border-black">
+      <h2 class="text-sm font-black uppercase tracking-wider">ALUNK STORE</h2>
+      <p class="text-[10px]">Toko Sembako & Kebutuhan Pokok</p>
+      <p class="text-[9px]">Jl. Raya Pasar No. 12, Jawa Timur</p>
+      <p class="text-[9px]">Telp/WA: 0812-3456-7890</p>
+    </div>
+
+    <!-- Meta Info -->
+    <div class="py-1.5 text-[10px] border-b border-dashed border-black space-y-0.5">
+      <div class="flex justify-between">
+        <span>No: <strong id="receipt-no">TRX-00001</strong></span>
+        <span id="receipt-date">17/09/2026 15:30</span>
+      </div>
+      <div class="flex justify-between">
+        <span>Kasir: <strong id="receipt-cashier">Kasir Utama</strong></span>
+        <span>Bayar: <strong>TUNAI</strong></span>
+      </div>
+    </div>
+
+    <!-- Item List -->
+    <div class="py-2 border-b border-dashed border-black">
+      <table class="w-full text-[10px]">
+        <thead>
+          <tr class="border-b border-dashed border-black">
+            <th class="text-left pb-1 font-bold">Item</th>
+            <th class="text-center pb-1 font-bold">Qty</th>
+            <th class="text-right pb-1 font-bold">Harga</th>
+            <th class="text-right pb-1 font-bold">Total</th>
+          </tr>
+        </thead>
+        <tbody id="receipt-items-body">
+          <!-- Populated by JS -->
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Summary & Totals -->
+    <div class="py-1.5 text-[10px] space-y-0.5 border-b border-dashed border-black">
+      <div class="flex justify-between">
+        <span>Total Item:</span>
+        <span id="receipt-total-items" class="font-bold">0</span>
+      </div>
+      <div class="flex justify-between font-bold text-xs pt-0.5">
+        <span>TOTAL:</span>
+        <span id="receipt-grand-total">Rp 0</span>
+      </div>
+      <div class="flex justify-between pt-0.5">
+        <span>TUNAI:</span>
+        <span id="receipt-cash">Rp 0</span>
+      </div>
+      <div class="flex justify-between">
+        <span>KEMBALI:</span>
+        <span id="receipt-change">Rp 0</span>
+      </div>
+    </div>
+
+    <!-- Footer Greeting -->
+    <div class="pt-2 text-center text-[9px] space-y-0.5">
+      <p class="font-bold uppercase tracking-wider">*** TERIMA KASIH ***</p>
+      <p>Barang yang sudah dibeli tidak dapat ditukar atau dikembalikan</p>
+      <p class="font-mono text-[8px] pt-1">ALUNK-POS-BARCODE-SYSTEM</p>
+    </div>
+  </div>
+
+  <!-- SCREEN MODAL PREVIEW FOR THERMAL RECEIPT -->
+  <div id="receipt-preview-modal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <h3 class="font-extrabold text-slate-900 text-sm">Preview Struk Thermal</h3>
+        <button type="button" onclick="toggleReceiptPreviewModal()" class="text-slate-400 hover:text-slate-600 font-bold text-sm px-2">
+          &times;
+        </button>
+      </div>
+
+      <div class="p-3 bg-slate-50 rounded-2xl border border-slate-200">
+        <div id="modal-receipt-content" class="bg-white p-3 border border-slate-300 rounded shadow-xs font-mono-receipt text-xs leading-tight">
+          <!-- Cloned receipt content displayed here -->
+        </div>
+      </div>
+
+      <div class="flex gap-2">
+        <button
+          type="button"
+          onclick="window.print()"
+          class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer flex items-center justify-center gap-1.5"
+        >
+          <span>Cetak Sekarang (Print)</span>
+        </button>
+        <button
+          type="button"
+          onclick="toggleReceiptPreviewModal()"
+          class="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl"
+        >
+          Tutup
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- MOBILE CAMERA BARCODE SCANNER MODAL                            -->
+  <!-- ============================================================== -->
+  <div id="camera-scanner-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl flex flex-col text-slate-100">
+      <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></div>
+          <h3 class="font-bold text-sm text-white">Pemindai Barcode Kamera HP</h3>
+        </div>
+        <button type="button" onclick="closeCameraScannerModal()" class="text-slate-400 hover:text-white font-bold text-xl px-2">
+          &times;
+        </button>
+      </div>
+
+      <div class="relative bg-black w-full aspect-4/3 flex items-center justify-center overflow-hidden">
+        <video
+          id="camera-scanner-video"
+          playsinline
+          autoplay
+          muted
+          class="w-full h-full object-cover transition-opacity duration-300 opacity-0"
+        ></video>
+
+        <div id="camera-loading-state" class="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-2 bg-black/80">
+          <div class="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin"></div>
+          <span class="text-xs text-slate-300">Menghubungkan kamera HP...</span>
+        </div>
+
+        <div id="camera-reticle" class="absolute inset-0 pointer-events-none hidden flex-col items-center justify-center">
+          <div class="relative w-56 h-36 rounded-2xl border-2 border-emerald-500/70 shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center justify-center">
+            <div class="w-full h-0.5 bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse"></div>
+            <div class="absolute -bottom-6 bg-black/75 px-3 py-0.5 rounded-full text-[10px] text-emerald-300 font-medium">
+              Arahkan ke Barcode Produk
+            </div>
+          </div>
+        </div>
+
+        <div id="camera-error-panel" class="absolute inset-0 bg-slate-900/95 hidden flex-col items-center justify-center p-5 text-center space-y-3 z-10">
+          <div class="w-10 h-10 rounded-full bg-rose-950 border border-rose-500 flex items-center justify-center text-rose-400 font-bold">⚠️</div>
+          <p id="camera-error-text" class="text-xs font-bold text-rose-300"></p>
+          <button type="button" onclick="initCameraStream()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold cursor-pointer">
+            Coba Lagi
+          </button>
+        </div>
+      </div>
+
+      <div class="p-3.5 border-t border-slate-800 flex items-center justify-between gap-2 bg-slate-950">
+        <button
+          type="button"
+          onclick="toggleCameraFacingMode()"
+          class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition cursor-pointer"
+        >
+          🔄 Ganti Kamera
+        </button>
+        <button
+          type="button"
+          onclick="closeCameraScannerModal()"
+          class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition cursor-pointer"
+        >
+          Tutup
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MANUAL QUANTITY CONFIRMATION MODAL (NO AUTO-INCREMENT) -->
+  <div
+    id="manual-qty-modal"
+    class="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 hidden animate-in fade-in duration-200"
+  >
+    <div class="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-3xl p-5 shadow-2xl space-y-4 text-slate-100">
+      <div class="flex items-start justify-between border-b border-slate-800 pb-3">
+        <div>
+          <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/80 border border-emerald-800 px-2 py-0.5 rounded-md">
+            Barcode Terdeteksi
+          </span>
+          <h3 id="manual-qty-product-name" class="text-sm font-bold text-white mt-1.5 leading-snug">
+            Nama Produk
+          </h3>
+          <p id="manual-qty-product-code" class="text-[11px] font-mono text-slate-400 mt-0.5">
+            Barcode: -
+          </p>
+        </div>
+        <button
+          type="button"
+          onclick="closeManualQtyModal()"
+          class="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition text-sm cursor-pointer"
+        >
+          ✕
+        </button>
+      </div>
+
+      <form onsubmit="handleManualQtySubmit(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1.5">
+            Masukkan Jumlah Kuantitas Manual:
+          </label>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onclick="stepManualQty(-1)"
+              class="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold text-lg flex items-center justify-center border border-slate-700 transition cursor-pointer"
+            >
+              -
+            </button>
+            <input
+              id="manual-qty-input"
+              type="number"
+              min="1"
+              required
+              value="1"
+              oninput="updateManualQtySubtotal()"
+              class="flex-1 h-12 bg-slate-950 border-2 border-emerald-500 rounded-2xl text-center font-bold text-xl text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+            />
+            <button
+              type="button"
+              onclick="stepManualQty(1)"
+              class="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold text-lg flex items-center justify-center border border-slate-700 transition cursor-pointer"
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        <!-- Preset Chips -->
+        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+          <button type="button" onclick="setManualQtyPreset(1)" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 cursor-pointer">1</button>
+          <button type="button" onclick="setManualQtyPreset(2)" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 cursor-pointer">2</button>
+          <button type="button" onclick="setManualQtyPreset(5)" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 cursor-pointer">5</button>
+          <button type="button" onclick="setManualQtyPreset(10)" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 cursor-pointer">10</button>
+          <button type="button" onclick="setManualQtyPreset(12)" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 cursor-pointer">12</button>
+          <button type="button" onclick="setManualQtyPreset(24)" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 cursor-pointer">24</button>
+        </div>
+
+        <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex items-center justify-between text-xs">
+          <span class="text-slate-400">Total Subtotal:</span>
+          <span id="manual-qty-subtotal" class="font-bold text-emerald-400 text-sm">Rp 0</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <button
+            type="button"
+            onclick="closeManualQtyModal()"
+            class="w-full py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            class="w-full py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 active:scale-98 text-slate-950 text-xs font-extrabold transition shadow-lg shadow-emerald-500/20 cursor-pointer"
+          >
+            Konfirmasi Masuk
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- VANILLA JAVASCRIPT POS ENGINE                                  -->
+  <!-- ============================================================== -->
+  <script>
+    // -----------------------------------------------------------------
+    // 1. MOCKUP PRODUCT DATABASE (Array of objects as required)
+    // -----------------------------------------------------------------
+    const productDatabase = [
+      { id: "P001", code: "8991001", name: "Beras Rojolele Super 5kg", price: 72000, stock: 25 },
+      { id: "P002", code: "8991002", name: "Minyak Goreng Bimoli 1L", price: 18500, stock: 40 },
+      { id: "P003", code: "8991003", name: "Minyak Goreng Bimoli 2L", price: 36000, stock: 30 },
+      { id: "P004", code: "8991004", name: "Gula Pasir Gulaku Kuning 1kg", price: 17500, stock: 50 },
+      { id: "P005", code: "8991005", name: "Indomie Goreng Spesial 85g", price: 3100, stock: 120 },
+      { id: "P006", code: "8991006", name: "Indomie Kuah Ayam Bawang 69g", price: 3000, stock: 100 },
+      { id: "P007", code: "8991007", name: "Telur Ayam Negeri 1kg", price: 28000, stock: 35 },
+      { id: "P008", code: "8991008", name: "Kopi Kapal Api Special Mix 10s", price: 14000, stock: 60 },
+      { id: "P009", code: "8991009", name: "Kecap Manis Bango 520ml", price: 24000, stock: 28 },
+      { id: "P010", code: "8991010", name: "Tepung Terigu Segitiga Biru 1kg", price: 12500, stock: 45 },
+      { id: "P011", code: "8991011", name: "Susu Kental Manis Frisian Flag 370g", price: 12000, stock: 35 },
+      { id: "P012", code: "8991012", name: "Sabun Cuci Piring Sunlight 650ml", price: 13500, stock: 50 }
+    ];
+
+    // -----------------------------------------------------------------
+    // 2. ACTIVE STATE
+    // -----------------------------------------------------------------
+    // Cart item format: { product: Object, qty: Number, subtotal: Number }
+    let cart = [];
+    let cashPaid = 0;
+    let alertTimeout = null;
+
+    // DOM Elements
+    const barcodeInput = document.getElementById('barcode-input');
+    const cartTableBody = document.getElementById('cart-table-body');
+    const cartItemBadge = document.getElementById('cart-item-badge');
+    const displayGrandTotal = document.getElementById('display-grand-total');
+    const displayChange = document.getElementById('display-change');
+    const cashInput = document.getElementById('cash-input');
+    const alertBanner = document.getElementById('alert-banner');
+    const alertIcon = document.getElementById('alert-icon');
+    const alertMessage = document.getElementById('alert-message');
+    const sampleCodesContainer = document.getElementById('sample-codes-container');
+    const totalMockProducts = document.getElementById('total-mock-products');
+    const currentClock = document.getElementById('current-clock');
+
+    // -----------------------------------------------------------------
+    // 3. AUDIO BEEP FEEDBACK (Native Web Audio API)
+    // -----------------------------------------------------------------
+    function playBeep(isSuccess = true) {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (isSuccess) {
+          // Pleasant high-pitched scan chime
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(1800, audioCtx.currentTime);
+          gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.08);
+        } else {
+          // Low-pitch alert boop
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+          gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.25);
+        }
+      } catch (e) {
+        // AudioContext may be blocked before interaction, safe to ignore
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // 4. FORMATTERS
+    // -----------------------------------------------------------------
+    function formatRupiah(num) {
+      return 'Rp ' + Number(num || 0).toLocaleString('id-ID');
+    }
+
+    // Always keep input focused for barcode scanners
+    function refocusBarcodeInput() {
+      setTimeout(() => {
+        if (barcodeInput && document.activeElement !== cashInput) {
+          barcodeInput.focus();
+        }
+      }, 50);
+    }
+
+    // -----------------------------------------------------------------
+    // 5. INLINE ALERT NOTIFICATIONS
+    // -----------------------------------------------------------------
+    function showAlert(message, type = 'error') {
+      if (alertTimeout) clearTimeout(alertTimeout);
+
+      alertBanner.className = `p-4 rounded-2xl border text-sm font-semibold flex items-center justify-between shadow-xs transition-all ${
+        type === 'error'
+          ? 'bg-rose-50 border-rose-200 text-rose-800'
+          : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+      }`;
+
+      alertIcon.textContent = type === 'error' ? '⚠️' : '✅';
+      alertMessage.textContent = message;
+      alertBanner.classList.remove('hidden');
+
+      alertTimeout = setTimeout(() => {
+        hideAlert();
+      }, 3500);
+    }
+
+    function hideAlert() {
+      alertBanner.classList.add('hidden');
+    }
+
+    // -----------------------------------------------------------------
+    // 6. CORE FEATURE 1: BARCODE SCAN & AUTO-DETECT
+    // -----------------------------------------------------------------
+    function processBarcodeScan(code) {
+      const trimmedCode = (code || '').trim();
+      if (!trimmedCode) return;
+
+      // Find in mockup product database
+      const matchedProduct = productDatabase.find(
+        p => p.code === trimmedCode || p.id.toLowerCase() === trimmedCode.toLowerCase()
+      );
+
+      if (matchedProduct) {
+        // AUTO-DETECTED: Prompt manual quantity (NO AUTO-INCREMENT)
+        playBeep(true);
+        showAlert(`Produk "${matchedProduct.name}" terdeteksi! Masukkan kuantitas manual.`, 'success');
+        openManualQtyConfirmation(matchedProduct);
+      } else {
+        // NOT FOUND: Show brief inline alert
+        playBeep(false);
+        showAlert(`Kode barcode "${trimmedCode}" tidak ditemukan dalam database!`, 'error');
+        refocusBarcodeInput();
+      }
+
+      // Clear input
+      barcodeInput.value = '';
+    }
+
+    // -----------------------------------------------------------------
+    // MANUAL QUANTITY CONFIRMATION MODAL LOGIC (NO AUTO-INCREMENT)
+    // -----------------------------------------------------------------
+    let pendingScannedProduct = null;
+
+    function openManualQtyConfirmation(product) {
+      pendingScannedProduct = product;
+      document.getElementById('manual-qty-product-name').textContent = product.name;
+      document.getElementById('manual-qty-product-code').textContent =
+        `Barcode: ${product.code} • ${formatRupiah(product.price)} / pcs • Stok: ${product.stock} pcs`;
+      document.getElementById('manual-qty-input').value = '1';
+      updateManualQtySubtotal();
+      document.getElementById('manual-qty-modal').classList.remove('hidden');
+      setTimeout(() => {
+        const input = document.getElementById('manual-qty-input');
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      }, 50);
+    }
+
+    function closeManualQtyModal() {
+      pendingScannedProduct = null;
+      document.getElementById('manual-qty-modal').classList.add('hidden');
+      refocusBarcodeInput();
+    }
+
+    function stepManualQty(delta) {
+      const input = document.getElementById('manual-qty-input');
+      const cur = Math.max(1, (parseInt(input.value, 10) || 1) + delta);
+      input.value = cur;
+      updateManualQtySubtotal();
+    }
+
+    function setManualQtyPreset(val) {
+      const input = document.getElementById('manual-qty-input');
+      input.value = val;
+      updateManualQtySubtotal();
+    }
+
+    function updateManualQtySubtotal() {
+      if (!pendingScannedProduct) return;
+      const input = document.getElementById('manual-qty-input');
+      const qty = Math.max(1, parseInt(input.value, 10) || 1);
+      document.getElementById('manual-qty-subtotal').textContent = formatRupiah(qty * pendingScannedProduct.price);
+    }
+
+    function handleManualQtySubmit(e) {
+      e.preventDefault();
+      if (!pendingScannedProduct) return;
+      const input = document.getElementById('manual-qty-input');
+      const qty = Math.max(1, parseInt(input.value, 10) || 1);
+
+      const existingCartIndex = cart.findIndex(item => item.product.code === pendingScannedProduct.code);
+      if (existingCartIndex > -1) {
+        cart[existingCartIndex].qty += qty;
+        cart[existingCartIndex].subtotal = cart[existingCartIndex].qty * pendingScannedProduct.price;
+      } else {
+        cart.push({
+          product: pendingScannedProduct,
+          qty: qty,
+          subtotal: qty * pendingScannedProduct.price
+        });
+      }
+
+      playBeep(true);
+      showAlert(`+${qty} "${pendingScannedProduct.name}" berhasil ditambahkan ke keranjang!`, 'success');
+      renderCartTable();
+      closeManualQtyModal();
+    }
+
+    function handleBarcodeSubmit(e) {
+      e.preventDefault();
+      processBarcodeScan(barcodeInput.value);
+    }
+
+    // Auto-detect when scanning full matching barcode without pressing enter
+    barcodeInput.addEventListener('input', (e) => {
+      const val = e.target.value.trim();
+      if (val.length >= 7) {
+        const exactMatch = productDatabase.find(p => p.code === val);
+        if (exactMatch) {
+          processBarcodeScan(val);
+        }
+      }
+    });
+
+    // -----------------------------------------------------------------
+    // 7. CORE FEATURE 2: INTERACTIVE CART / TRANSACTION LIST
+    // -----------------------------------------------------------------
+    function incrementItem(index) {
+      if (cart[index]) {
+        cart[index].qty += 1;
+        cart[index].subtotal = cart[index].qty * cart[index].product.price;
+        renderCartTable();
+      }
+      refocusBarcodeInput();
+    }
+
+    function decrementItem(index) {
+      if (cart[index]) {
+        if (cart[index].qty > 1) {
+          cart[index].qty -= 1;
+          cart[index].subtotal = cart[index].qty * cart[index].product.price;
+        } else {
+          // If qty reaches 0, remove item from list
+          cart.splice(index, 1);
+        }
+        renderCartTable();
+      }
+      refocusBarcodeInput();
+    }
+
+    function removeItem(index) {
+      if (cart[index]) {
+        const removedName = cart[index].product.name;
+        cart.splice(index, 1);
+        showAlert(`"${removedName}" dihapus dari keranjang.`, 'success');
+        renderCartTable();
+      }
+      refocusBarcodeInput();
+    }
+
+    function clearCart() {
+      if (cart.length === 0) return;
+      cart = [];
+      cashPaid = 0;
+      cashInput.value = '';
+      renderCartTable();
+      showAlert('Keranjang kasir telah dikosongkan.', 'success');
+      refocusBarcodeInput();
+    }
+
+    function getGrandTotal() {
+      return cart.reduce((total, item) => total + item.subtotal, 0);
+    }
+
+    function getTotalQty() {
+      return cart.reduce((total, item) => total + item.qty, 0);
+    }
+
+    // Render live table
+    function renderCartTable() {
+      if (cart.length === 0) {
+        cartTableBody.innerHTML = `
+          <tr>
+            <td colspan="6" class="py-12 text-center text-slate-400">
+              <div class="w-12 h-12 mx-auto mb-2 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
+                </svg>
+              </div>
+              <p class="font-bold text-slate-700 text-sm">Keranjang Masih Kosong</p>
+              <p class="text-xs text-slate-400 mt-0.5">Scan barcode produk untuk mulai mencatat transaksi</p>
+            </td>
+          </tr>
+        `;
+        cartItemBadge.textContent = '0 Item';
+      } else {
+        cartTableBody.innerHTML = cart.map((item, index) => `
+          <tr class="hover:bg-slate-50/60 transition-colors">
+            <!-- Product Code -->
+            <td class="py-3 px-4 font-mono font-bold text-slate-500 text-xs">
+              ${item.product.code}
+            </td>
+            <!-- Name -->
+            <td class="py-3 px-4 font-bold text-slate-900">
+              ${item.product.name}
+            </td>
+            <!-- Unit Price -->
+            <td class="py-3 px-4 text-right font-mono font-semibold text-slate-700">
+              ${formatRupiah(item.product.price)}
+            </td>
+            <!-- Qty (+ / - buttons) -->
+            <td class="py-3 px-4 text-center">
+              <div class="inline-flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  onclick="decrementItem(${index})"
+                  title="Kurangi Qty"
+                  class="w-7 h-7 rounded-lg bg-white hover:bg-rose-50 hover:text-rose-600 active:scale-95 text-slate-700 font-black flex items-center justify-center transition-all border border-slate-200 cursor-pointer text-xs"
+                >
+                  -
+                </button>
+                <span class="w-8 text-center font-mono font-extrabold text-slate-900 text-sm">
+                  ${item.qty}
+                </span>
+                <button
+                  type="button"
+                  onclick="incrementItem(${index})"
+                  title="Tambah Qty"
+                  class="w-7 h-7 rounded-lg bg-white hover:bg-emerald-50 hover:text-emerald-600 active:scale-95 text-slate-700 font-black flex items-center justify-center transition-all border border-slate-200 cursor-pointer text-xs"
+                >
+                  +
+                </button>
+              </div>
+            </td>
+            <!-- Subtotal -->
+            <td class="py-3 px-4 text-right font-mono font-black text-emerald-700 text-sm">
+              ${formatRupiah(item.subtotal)}
+            </td>
+            <!-- Action (Delete / Trash) -->
+            <td class="py-3 px-4 text-center">
+              <button
+                type="button"
+                onclick="removeItem(${index})"
+                title="Hapus baris ini"
+                class="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                </svg>
+              </button>
+            </td>
+          </tr>
+        `).join('');
+
+        const totalQty = getTotalQty();
+        cartItemBadge.textContent = `${totalQty} Item (${cart.length} Jenis)`;
+      }
+
+      // Update Grand Total and Change
+      updateCalculations();
+    }
+
+    // -----------------------------------------------------------------
+    // 8. PAYMENT & CHANGE CALCULATION
+    // -----------------------------------------------------------------
+    function handleCashInput() {
+      cashPaid = Number(cashInput.value) || 0;
+      updateCalculations();
+    }
+
+    function setCashExact() {
+      cashPaid = getGrandTotal();
+      cashInput.value = cashPaid > 0 ? cashPaid : '';
+      updateCalculations();
+      refocusBarcodeInput();
+    }
+
+    function addCashQuick(val) {
+      const grandTotal = getGrandTotal();
+      if (val >= grandTotal) {
+        cashPaid = val;
+      } else {
+        cashPaid = (cashPaid || 0) + val;
+      }
+      cashInput.value = cashPaid;
+      updateCalculations();
+      refocusBarcodeInput();
+    }
+
+    function clearCash() {
+      cashPaid = 0;
+      cashInput.value = '';
+      updateCalculations();
+      refocusBarcodeInput();
+    }
+
+    function updateCalculations() {
+      const grandTotal = getGrandTotal();
+      displayGrandTotal.textContent = formatRupiah(grandTotal);
+
+      const change = Math.max(0, cashPaid - grandTotal);
+      displayChange.textContent = formatRupiah(change);
+
+      if (cashPaid > 0 && cashPaid < grandTotal) {
+        displayChange.textContent = `Kurang ${formatRupiah(grandTotal - cashPaid)}`;
+        displayChange.className = 'text-sm font-bold font-mono text-rose-600';
+      } else {
+        displayChange.className = 'text-lg font-black font-mono text-emerald-700';
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // 9. CORE FEATURE 3: RECEIPT PRINT OUT (CETAK STRUK)
+    // -----------------------------------------------------------------
+    function populateThermalReceipt() {
+      const grandTotal = getGrandTotal();
+      const totalQty = getTotalQty();
+      const change = Math.max(0, cashPaid - grandTotal);
+      const now = new Date();
+
+      // Formatted receipt values
+      document.getElementById('receipt-no').textContent = 'TRX-' + String(Date.now()).slice(-6);
+      document.getElementById('receipt-date').textContent = now.toLocaleDateString('id-ID', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      }) + ' ' + now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
+      // Items
+      const receiptBody = document.getElementById('receipt-items-body');
+      receiptBody.innerHTML = cart.map(item => `
+        <tr>
+          <td colspan="4" class="pt-1 font-bold">${item.product.name}</td>
+        </tr>
+        <tr class="pb-1 border-b border-dashed border-black/30">
+          <td class="font-mono text-[9px] text-slate-600">${item.product.code}</td>
+          <td class="text-center font-mono">${item.qty}</td>
+          <td class="text-right font-mono">${item.product.price.toLocaleString('id-ID')}</td>
+          <td class="text-right font-mono font-bold">${item.subtotal.toLocaleString('id-ID')}</td>
+        </tr>
+      `).join('');
+
+      document.getElementById('receipt-total-items').textContent = `${totalQty} pcs (${cart.length} item)`;
+      document.getElementById('receipt-grand-total').textContent = formatRupiah(grandTotal);
+      document.getElementById('receipt-cash').textContent = formatRupiah(cashPaid || grandTotal);
+      document.getElementById('receipt-change').textContent = formatRupiah(change);
+    }
+
+    function handlePrintReceipt() {
+      if (cart.length === 0) {
+        showAlert('Keranjang masih kosong! Silakan scan barang terlebih dahulu sebelum cetak struk.', 'error');
+        refocusBarcodeInput();
+        return;
+      }
+
+      // If cash is not filled, set to exact grand total
+      const grandTotal = getGrandTotal();
+      if (!cashPaid || cashPaid < grandTotal) {
+        cashPaid = grandTotal;
+        cashInput.value = grandTotal;
+        updateCalculations();
+      }
+
+      // Prepare thermal receipt contents
+      populateThermalReceipt();
+
+      // Trigger native browser print dialog
+      window.print();
+
+      showAlert('Struk transaksi berhasil dicetak!', 'success');
+      refocusBarcodeInput();
+    }
+
+    function toggleReceiptPreviewModal() {
+      const modal = document.getElementById('receipt-preview-modal');
+      const content = document.getElementById('modal-receipt-content');
+      
+      if (modal.classList.contains('hidden')) {
+        populateThermalReceipt();
+        const receiptEl = document.getElementById('thermal-receipt');
+        content.innerHTML = receiptEl.innerHTML;
+        modal.classList.remove('hidden');
+      } else {
+        modal.classList.add('hidden');
+        refocusBarcodeInput();
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // 10. INITIALIZATION & SHORTCUTS
+    // -----------------------------------------------------------------
+    // Render clickable sample barcode chips for quick testing
+    function initSampleChips() {
+      totalMockProducts.textContent = productDatabase.length;
+      sampleCodesContainer.innerHTML = productDatabase.map(p => `
+        <button
+          type="button"
+          onclick="processBarcodeScan('${p.code}')"
+          class="px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 border border-slate-200 text-[11px] font-mono font-semibold transition-all cursor-pointer flex items-center gap-1 group"
+          title="Klik untuk simulasi scan: ${p.name}"
+        >
+          <span class="text-slate-400 group-hover:text-emerald-500">🏷️</span>
+          <span>${p.code}</span>
+          <span class="text-[10px] text-slate-400 font-sans truncate max-w-[90px]">(${p.name.split(' ')[0]})</span>
+        </button>
+      `).join('');
+    }
+
+    // Live Header Clock
+    function updateClock() {
+      const now = new Date();
+      currentClock.textContent = now.toLocaleTimeString('id-ID');
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Global Keydown Listeners (F9 for Print, Esc to clear and refocus)
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'F9') {
+        e.preventDefault();
+        handlePrintReceipt();
+      } else if (e.key === 'Escape') {
+        barcodeInput.value = '';
+        refocusBarcodeInput();
+      }
+    });
+
+    // Auto refocus when clicking anywhere on the background (cashier usability)
+    document.addEventListener('click', (e) => {
+      if (
+        !e.target.closest('input') &&
+        !e.target.closest('button') &&
+        !e.target.closest('#receipt-preview-modal')
+      ) {
+        refocusBarcodeInput();
+      }
+    });
+
+    // -----------------------------------------------------------------
+    // CAMERA SCANNER ENGINE FOR MOBILE & DESKTOP
+    // -----------------------------------------------------------------
+    let cameraStream = null;
+    let cameraFacingMode = 'environment';
+    let cameraScanInterval = null;
+    let cameraCooldown = false;
+
+    const cameraModal = document.getElementById('camera-scanner-modal');
+    const cameraVideo = document.getElementById('camera-scanner-video');
+    const cameraLoading = document.getElementById('camera-loading-state');
+    const cameraReticle = document.getElementById('camera-reticle');
+    const cameraErrorPanel = document.getElementById('camera-error-panel');
+    const cameraErrorText = document.getElementById('camera-error-text');
+
+    async function openCameraScannerModal() {
+      cameraModal.classList.remove('hidden');
+      await initCameraStream();
+    }
+
+    function closeCameraScannerModal() {
+      stopCameraStream();
+      cameraModal.classList.add('hidden');
+      refocusBarcodeInput();
+    }
+
+    function stopCameraStream() {
+      if (cameraScanInterval) {
+        clearInterval(cameraScanInterval);
+        cameraScanInterval = null;
+      }
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(t => t.stop());
+        cameraStream = null;
+      }
+      if (cameraVideo) {
+        cameraVideo.srcObject = null;
+        cameraVideo.classList.add('opacity-0');
+      }
+      if (cameraReticle) cameraReticle.classList.add('hidden');
+      if (cameraLoading) cameraLoading.classList.remove('hidden');
+      if (cameraErrorPanel) cameraErrorPanel.classList.add('hidden');
+    }
+
+    async function toggleCameraFacingMode() {
+      cameraFacingMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
+      await initCameraStream();
+    }
+
+    async function initCameraStream() {
+      stopCameraStream();
+      cameraErrorPanel.classList.add('hidden');
+      cameraLoading.classList.remove('hidden');
+
+      if (typeof window !== 'undefined' && window.isSecureContext === false) {
+        showCameraError('Kamera hanya dapat diakses melalui koneksi aman (HTTPS atau localhost).');
+        return;
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showCameraError('Browser ini tidak mendukung navigator.mediaDevices.getUserMedia.');
+        return;
+      }
+
+      try {
+        const constraints = {
+          audio: false,
+          video: {
+            facingMode: { ideal: cameraFacingMode },
+            width: { ideal: 1280, min: 640 },
+            height: { ideal: 720, min: 480 }
+          }
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        handleCameraStreamReady(stream);
+      } catch (err) {
+        console.warn('Ideal constraints failed, trying basic video:', err);
+        try {
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          handleCameraStreamReady(fallbackStream);
+        } catch (fallbackErr) {
+          console.error('Camera access error:', fallbackErr);
+          let msg = 'Gagal mengakses kamera.';
+          if (fallbackErr.name === 'NotAllowedError' || fallbackErr.name === 'PermissionDeniedError') {
+            msg = 'Izin kamera ditolak! Silakan aktifkan izin kamera di pengaturan browser/HP Anda.';
+          } else if (fallbackErr.name === 'NotFoundError') {
+            msg = 'Kamera tidak ditemukan pada perangkat ini.';
+          } else if (fallbackErr.name === 'NotReadableError') {
+            msg = 'Kamera sedang digunakan aplikasi lain atau sistem.';
+          } else {
+            msg = 'Gagal membuka kamera: ' + (fallbackErr.message || 'Periksa izin kamera');
+          }
+          showCameraError(msg);
+        }
+      }
+    }
+
+    function showCameraError(msg) {
+      cameraLoading.classList.add('hidden');
+      cameraErrorPanel.classList.remove('hidden');
+      cameraErrorPanel.classList.add('flex');
+      cameraErrorText.textContent = msg;
+    }
+
+    async function handleCameraStreamReady(stream) {
+      cameraStream = stream;
+      cameraVideo.setAttribute('playsinline', 'true');
+      cameraVideo.setAttribute('webkit-playsinline', 'true');
+      cameraVideo.muted = true;
+      cameraVideo.autoplay = true;
+      cameraVideo.srcObject = stream;
+
+      try {
+        await cameraVideo.play();
+        cameraVideo.classList.remove('opacity-0');
+        cameraLoading.classList.add('hidden');
+        cameraReticle.classList.remove('hidden');
+        cameraReticle.classList.add('flex');
+        startBarcodeScanLoop();
+      } catch (playErr) {
+        cameraVideo.onloadedmetadata = () => {
+          cameraVideo.play().then(() => {
+            cameraVideo.classList.remove('opacity-0');
+            cameraLoading.classList.add('hidden');
+            cameraReticle.classList.remove('hidden');
+            cameraReticle.classList.add('flex');
+            startBarcodeScanLoop();
+          });
+        };
+      }
+    }
+
+    function startBarcodeScanLoop() {
+      if ('BarcodeDetector' in window) {
+        try {
+          const detector = new window.BarcodeDetector({
+            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code']
+          });
+
+          cameraScanInterval = setInterval(async () => {
+            if (!cameraVideo || cameraVideo.readyState < 2 || cameraCooldown) return;
+            try {
+              const barcodes = await detector.detect(cameraVideo);
+              if (barcodes && barcodes.length > 0) {
+                const code = barcodes[0].rawValue;
+                if (code) {
+                  onBarcodeDetectedFromCamera(code);
+                }
+              }
+            } catch (e) {}
+          }, 200);
+        } catch (e) {
+          console.warn('BarcodeDetector fallback:', e);
+        }
+      }
+    }
+
+    function onBarcodeDetectedFromCamera(code) {
+      if (cameraCooldown) return;
+      cameraCooldown = true;
+      processBarcodeScan(code);
+      setTimeout(() => {
+        cameraCooldown = false;
+      }, 1200);
+    }
+
+    // Initial setup
+    initSampleChips();
+    renderCartTable();
+    refocusBarcodeInput();
+  </script>
+</body>
+</html>

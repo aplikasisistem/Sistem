@@ -10,9 +10,12 @@ import {
   DamageLog,
   OperationalExpense,
   StockOpnameRecord,
+  StockLog,
   CartItem,
   PaymentMethod,
-  UserRole
+  UserRole,
+  UnitType,
+  isWarehouseAdmin
 } from '../types';
 import {
   INITIAL_USERS,
@@ -70,6 +73,20 @@ interface StoreContextType {
   updateProduct: (p: Product) => void;
   deleteProduct: (id: string) => void;
   updateMasterPrices: (id: string, costPrice: number, retailPrice: number, wholesalePrice: number, minWholesaleQty: number, boxWholesalePrice?: number) => void;
+  addOrIncreaseStock: (params: {
+    name: string;
+    retailPrice: number;
+    qty: number;
+    category?: string;
+    baseUnit?: string;
+  }) => Promise<{ product: Product; isNew: boolean }>;
+  recordQuickSale: (params: {
+    productId: string;
+    productName: string;
+    quantity: number;
+    price: number;
+    paymentMethod?: PaymentMethod;
+  }) => Promise<Transaction>;
 
   // Categories
   categories: string[];
@@ -121,6 +138,24 @@ interface StoreContextType {
   recordDamageOrReturn: (productId: string, quantity: number, reason: 'rusak' | 'kadaluwarsa' | 'retur', notes?: string) => void;
   stockOpnames: StockOpnameRecord[];
   performStockOpname: (productId: string, physicalStock: number, reason: string) => void;
+  
+  // Warehouse Automated Stock Scanner & Inbound Logs
+  stockLogs: StockLog[];
+  autoInboundStockByBarcode: (params: {
+    barcode: string;
+    addedQty?: number;
+    batchNumber?: string;
+    source?: 'camera_auto_scan' | 'manual_barcode' | 'batch_inbound';
+  }) => Promise<{
+    success: boolean;
+    status: 'updated' | 'not_found' | 'denied';
+    product?: Product;
+    previousStock?: number;
+    currentStock?: number;
+    addedQty?: number;
+    message?: string;
+    stockLog?: StockLog;
+  }>;
 
   // Expenses
   expenses: OperationalExpense[];
@@ -142,6 +177,7 @@ const STORAGE_KEYS = {
   PURCHASES: 'alunk_purchases',
   DAMAGE_LOGS: 'alunk_damage_logs',
   STOCK_OPNAMES: 'alunk_stock_opnames',
+  STOCK_LOGS: 'alunk_stock_logs',
   EXPENSES: 'alunk_expenses',
   AUTH_USER: 'alunk_auth_user',
   CATEGORIES: 'alunk_categories',
@@ -201,6 +237,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const [stockOpnames, setStockOpnames] = useState<StockOpnameRecord[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.STOCK_OPNAMES);
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [stockLogs, setStockLogs] = useState<StockLog[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.STOCK_LOGS);
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -288,9 +329,52 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       }
     );
 
+    // 3. Real-time Expenses Sync (Cloud persistent across all devices)
+    const unsubExpenses = onSnapshot(
+      collection(db, 'expenses'),
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const loaded: OperationalExpense[] = [];
+          snapshot.forEach(docSnap => {
+            loaded.push(docSnap.data() as OperationalExpense);
+          });
+          setExpenses(loaded);
+          try {
+            localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(loaded));
+          } catch (e) {}
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'expenses');
+      }
+    );
+
+    // 4. Real-time Stock Logs Inbound Sync (Cloud persistent)
+    const unsubStockLogs = onSnapshot(
+      collection(db, 'stock_logs'),
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const loadedLogs: StockLog[] = [];
+          snapshot.forEach(docSnap => {
+            loadedLogs.push(docSnap.data() as StockLog);
+          });
+          loadedLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          setStockLogs(loadedLogs);
+          try {
+            localStorage.setItem(STORAGE_KEYS.STOCK_LOGS, JSON.stringify(loadedLogs));
+          } catch (e) {}
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'stock_logs');
+      }
+    );
+
     return () => {
       unsubProducts();
       unsubCategories();
+      unsubExpenses();
+      unsubStockLogs();
     };
   }, []);
 
@@ -655,6 +739,360 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         handleFirestoreError(err, OperationType.UPDATE, `products/${id}`);
       });
     }
+  };
+
+  // Quick Stock In: Tambah Stok atau input barang baru dengan sinkronisasi Cloud Firestore
+  const addOrIncreaseStock = async (params: {
+    name: string;
+    retailPrice: number;
+    qty: number;
+    category?: string;
+    baseUnit?: string;
+  }): Promise<{ product: Product; isNew: boolean }> => {
+    const cleanName = (params.name || '').trim();
+    const qtyToAdd = Math.max(1, Number(params.qty) || 1);
+    const price = Math.max(0, Number(params.retailPrice) || 0);
+
+    // Cari apakah barang dengan nama yang sama persis atau sangat mirip sudah ada
+    const existingIndex = products.findIndex(
+      p => p.name.trim().toLowerCase() === cleanName.toLowerCase()
+    );
+
+    if (existingIndex >= 0) {
+      const existing = products[existingIndex];
+      const updatedProduct: Product = {
+        ...existing,
+        stock: (Number(existing.stock) || 0) + qtyToAdd,
+        retailPrice: price > 0 ? price : (Number(existing.retailPrice) || 0),
+        category: params.category || existing.category || 'Sembako',
+        baseUnit: (params.baseUnit as UnitType) || existing.baseUnit || 'pcs',
+      };
+
+      setProducts(prev => prev.map(p => (p.id === existing.id ? updatedProduct : p)));
+      try {
+        localStorage.setItem(
+          STORAGE_KEYS.PRODUCTS,
+          JSON.stringify(products.map(p => (p.id === existing.id ? updatedProduct : p)))
+        );
+      } catch (e) {}
+
+      // Cloud Sync Firestore (bisa diakses di semua device)
+      await safeSetDoc(doc(db, 'products', existing.id), updatedProduct).catch(err => {
+        handleFirestoreError(err, OperationType.UPDATE, `products/${existing.id}`);
+      });
+
+      return { product: updatedProduct, isNew: false };
+    } else {
+      const newProd: Product = {
+        id: `prod_${Date.now()}`,
+        name: cleanName || 'Produk Baru',
+        barcode: '',
+        category: params.category || 'Sembako',
+        baseUnit: (params.baseUnit as UnitType) || 'pcs',
+        allowDecimal: false,
+        hasMultiUnit: false,
+        stock: qtyToAdd,
+        minStock: 5,
+        costPrice: 0, // modal tidak dicatat
+        retailPrice: price,
+        wholesalePrice: price,
+        minWholesaleQty: 1,
+      };
+
+      setProducts(prev => [newProd, ...prev]);
+      try {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify([newProd, ...products]));
+      } catch (e) {}
+
+      // Cloud Sync Firestore (bisa diakses di semua device)
+      await safeSetDoc(doc(db, 'products', newProd.id), newProd).catch(err => {
+        handleFirestoreError(err, OperationType.CREATE, `products/${newProd.id}`);
+      });
+
+      return { product: newProd, isNew: true };
+    }
+  };
+
+  // Quick Sales / Scan Penjualan: Kurangi stok dan catat transaksi
+  const recordQuickSale = async (params: {
+    productId: string;
+    productName: string;
+    quantity: number;
+    price: number;
+    paymentMethod?: PaymentMethod;
+  }): Promise<Transaction> => {
+    const qtySold = Math.max(1, Number(params.quantity) || 1);
+    const salePrice = Math.max(0, Number(params.price) || 0);
+    const totalAmount = qtySold * salePrice;
+
+    // 1. Kurangi stok barang
+    const prod = products.find(p => p.id === params.productId);
+    if (prod) {
+      const updatedProduct: Product = {
+        ...prod,
+        stock: Math.max(0, (Number(prod.stock) || 0) - qtySold),
+      };
+      setProducts(prev => prev.map(p => (p.id === prod.id ? updatedProduct : p)));
+      try {
+        localStorage.setItem(
+          STORAGE_KEYS.PRODUCTS,
+          JSON.stringify(products.map(p => (p.id === prod.id ? updatedProduct : p)))
+        );
+      } catch (e) {}
+
+      // Sinkronisasi pemotongan stok ke Firestore
+      safeSetDoc(doc(db, 'products', prod.id), updatedProduct).catch(err => {
+        handleFirestoreError(err, OperationType.UPDATE, `products/${prod.id}`);
+      });
+    }
+
+    // 2. Buat objek Transaksi
+    const newTransaction: Transaction = {
+      id: `trx_${Date.now()}`,
+      invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+      timestamp: new Date().toISOString(),
+      cashierId: currentUser?.id || 'usr_quick',
+      cashierName: currentUser?.name || 'Kasir',
+      totalAmount,
+      totalCost: (prod?.costPrice || 0) * qtySold,
+      paymentMethod: params.paymentMethod || 'tunai',
+      amountPaid: totalAmount,
+      change: 0,
+      status: 'completed',
+      items: [
+        {
+          productId: params.productId,
+          productName: params.productName,
+          quantity: qtySold,
+          unit: prod?.baseUnit || 'pcs',
+          unitPrice: salePrice,
+          costPrice: prod?.costPrice || 0,
+          subtotal: totalAmount,
+          priceType: 'retail',
+        },
+      ],
+    };
+
+    // 3. Update state transaksi aplikasi
+    setTransactions(prev => [newTransaction, ...prev]);
+
+    // 4. Catat transaksi ke Supabase
+    if (isSupabaseConfigured) {
+      insertTransactionQuery(newTransaction).catch(err => {
+        console.error('Failed to insert quick sale transaction into Supabase:', err);
+      });
+    }
+
+    // 5. Catat transaksi ke Firestore agar dapat diakses real-time oleh siapa saja
+    safeSetDoc(doc(db, 'transactions', newTransaction.id), newTransaction).catch(err => {
+      handleFirestoreError(err, OperationType.CREATE, `transactions/${newTransaction.id}`);
+    });
+
+    // 6. Update laci kas shift jika shift aktif
+    if (currentShift && (params.paymentMethod === 'tunai' || !params.paymentMethod)) {
+      setCurrentShift(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          totalSales: prev.totalSales + totalAmount,
+          totalTransactions: prev.totalTransactions + 1,
+          cashSales: prev.cashSales + totalAmount,
+          expectedDrawerCash: prev.expectedDrawerCash + totalAmount,
+        };
+      });
+    }
+
+    return newTransaction;
+  };
+
+  // Automated Warehouse Inbound Stock Update (Restricted to warehouse_admin / manage_inventory)
+  const autoInboundStockByBarcode = async (params: {
+    barcode: string;
+    addedQty?: number;
+    batchNumber?: string;
+    source?: 'camera_auto_scan' | 'manual_barcode' | 'batch_inbound';
+  }): Promise<{
+    success: boolean;
+    status: 'updated' | 'not_found' | 'denied';
+    product?: Product;
+    previousStock?: number;
+    currentStock?: number;
+    addedQty?: number;
+    message?: string;
+    stockLog?: StockLog;
+  }> => {
+    const cleanBarcode = String(params.barcode || '').replace(/[\r\n\t]/g, '').trim();
+    const qtyToAdd = Math.max(1, Number(params.addedQty) || 1);
+    const source = params.source || 'camera_auto_scan';
+
+    // RBAC Security Check: Must be warehouse_admin or have manage_inventory: true
+    if (!isWarehouseAdmin(currentUser)) {
+      return {
+        success: false,
+        status: 'denied',
+        message: 'Akses Ditolak: Fitur Input Stok Otomatis HANYA boleh diakses oleh user dengan role warehouse_admin (Admin Gudang) yang memiliki hak akses manage_inventory: true.',
+      };
+    }
+
+    if (!cleanBarcode) {
+      return {
+        success: false,
+        status: 'not_found',
+        message: 'Kode barcode tidak boleh kosong.',
+      };
+    }
+
+    // First, check local products list
+    const existingIndex = products.findIndex(
+      p => p.barcode && p.barcode.trim() === cleanBarcode
+    );
+
+    if (existingIndex >= 0) {
+      const existing = products[existingIndex];
+      const previousStock = Number(existing.stock) || 0;
+      const currentStock = previousStock + qtyToAdd;
+
+      const updatedProduct: Product = {
+        ...existing,
+        stock: currentStock,
+        batchNumber: params.batchNumber || existing.batchNumber,
+      };
+
+      // 1. Update state & localStorage
+      const updatedList = [...products];
+      updatedList[existingIndex] = updatedProduct;
+      setProducts(updatedList);
+      try {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(updatedList));
+      } catch (e) {}
+
+      // 2. Sync to Firestore
+      safeSetDoc(doc(db, 'products', updatedProduct.id), updatedProduct).catch(err => {
+        handleFirestoreError(err, OperationType.UPDATE, `products/${updatedProduct.id}`);
+      });
+
+      // 3. Create Stock Log
+      const logRecord: StockLog = {
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        productId: updatedProduct.id,
+        barcode: cleanBarcode,
+        productName: updatedProduct.name,
+        category: updatedProduct.category,
+        previousStock,
+        addedQty: qtyToAdd,
+        currentStock,
+        unit: updatedProduct.baseUnit,
+        source,
+        userId: currentUser?.id || 'usr_warehouse',
+        userName: currentUser?.name || 'Admin Gudang',
+        userRole: currentUser?.role || 'warehouse_admin',
+        timestamp: new Date().toISOString(),
+        batchNumber: params.batchNumber,
+      };
+
+      setStockLogs(prev => [logRecord, ...prev]);
+      try {
+        localStorage.setItem(STORAGE_KEYS.STOCK_LOGS, JSON.stringify([logRecord, ...stockLogs]));
+      } catch (e) {}
+
+      safeSetDoc(doc(db, 'stock_logs', logRecord.id), logRecord).catch(err => {
+        handleFirestoreError(err, OperationType.CREATE, `stock_logs/${logRecord.id}`);
+      });
+
+      return {
+        success: true,
+        status: 'updated',
+        product: updatedProduct,
+        previousStock,
+        currentStock,
+        addedQty: qtyToAdd,
+        stockLog: logRecord,
+        message: `Stok ${updatedProduct.name} berhasil bertambah +${qtyToAdd} ${updatedProduct.baseUnit}. Sisa stok terkini: ${currentStock} ${updatedProduct.baseUnit}.`,
+      };
+    }
+
+    // If not in local products, try the server warehouse API endpoint
+    try {
+      const response = await fetch('/api/warehouse/scan-and-update-stock', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': currentUser?.role || 'warehouse_admin',
+          'x-manage-inventory': String(Boolean(currentUser?.manage_inventory ?? true)),
+        },
+        body: JSON.stringify({
+          barcode: cleanBarcode,
+          qty: qtyToAdd,
+          batchNumber: params.batchNumber,
+          source,
+          userId: currentUser?.id,
+          userName: currentUser?.name,
+          userRole: currentUser?.role,
+        }),
+      });
+
+      if (response.status === 403) {
+        return {
+          success: false,
+          status: 'denied',
+          message: 'Akses Ditolak: Server menolak akses karena role bukan warehouse_admin.',
+        };
+      }
+
+      const data = await response.json();
+
+      if (data.success && data.status === 'updated' && data.product) {
+        const newProd: Product = {
+          id: data.product.id || `prod_${Date.now()}`,
+          barcode: cleanBarcode,
+          name: data.product.name,
+          category: data.product.category || 'Sembako',
+          baseUnit: (data.product.baseUnit as UnitType) || 'pcs',
+          allowDecimal: false,
+          stock: data.currentStock,
+          minStock: data.product.minStock || 5,
+          costPrice: data.product.costPrice || 0,
+          retailPrice: data.product.retailPrice || 0,
+          wholesalePrice: data.product.wholesalePrice || 0,
+          minWholesaleQty: 1,
+          hasMultiUnit: false,
+        };
+
+        setProducts(prev => [newProd, ...prev]);
+        try {
+          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify([newProd, ...products]));
+        } catch (e) {}
+
+        // Sync product to Firestore
+        safeSetDoc(doc(db, 'products', newProd.id), newProd).catch(err => {
+          handleFirestoreError(err, OperationType.CREATE, `products/${newProd.id}`);
+        });
+
+        if (data.stockLog) {
+          setStockLogs(prev => [data.stockLog, ...prev]);
+          safeSetDoc(doc(db, 'stock_logs', data.stockLog.id), data.stockLog).catch(() => {});
+        }
+
+        return {
+          success: true,
+          status: 'updated',
+          product: newProd,
+          previousStock: data.previousStock,
+          currentStock: data.currentStock,
+          addedQty: qtyToAdd,
+          stockLog: data.stockLog,
+          message: data.message,
+        };
+      }
+    } catch (apiErr) {
+      console.warn('API warehouse scan error:', apiErr);
+    }
+
+    return {
+      success: false,
+      status: 'not_found',
+      message: `Barcode "${cleanBarcode}" belum terdaftar di sistem inventaris. Buka form produk baru untuk melengkapi detail produk.`,
+    };
   };
 
   // Cart Handlers
@@ -1365,10 +1803,26 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       id: `exp_${Date.now()}`,
     };
     setExpenses(prev => [newExpense, ...prev]);
+    try {
+      localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify([newExpense, ...expenses]));
+    } catch (e) {}
+
+    // Cloud Firestore Sync
+    safeSetDoc(doc(db, 'expenses', newExpense.id), newExpense).catch(err => {
+      handleFirestoreError(err, OperationType.CREATE, `expenses/${newExpense.id}`);
+    });
   };
 
   const deleteExpense = (id: string) => {
     setExpenses(prev => prev.filter(e => e.id !== id));
+    try {
+      localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(expenses.filter(e => e.id !== id)));
+    } catch (e) {}
+
+    // Cloud Firestore Delete
+    deleteDoc(doc(db, 'expenses', id)).catch(err => {
+      handleFirestoreError(err, OperationType.DELETE, `expenses/${id}`);
+    });
   };
 
   // Reset to default
@@ -1416,6 +1870,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         updateProduct,
         deleteProduct,
         updateMasterPrices,
+        addOrIncreaseStock,
+        recordQuickSale,
 
         categories,
         addCategory,
@@ -1457,6 +1913,8 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         recordDamageOrReturn,
         stockOpnames,
         performStockOpname,
+        stockLogs,
+        autoInboundStockByBarcode,
 
         expenses,
         addExpense,

@@ -17,8 +17,12 @@ import {
   Search,
   CheckCircle2,
   X,
-  Clock
+  Clock,
+  Barcode,
+  QrCode
 } from 'lucide-react';
+import { AutoStockScannerView } from './AutoStockScannerView';
+import { QrInventoryInboundView } from './QrInventoryInboundView';
 
 export const GudangView: React.FC = () => {
   const {
@@ -34,7 +38,7 @@ export const GudangView: React.FC = () => {
     categories: storeCategories,
   } = useStore();
 
-  const [activeTab, setActiveTab] = useState<'inventory' | 'near-expiry' | 'opname' | 'damage'>('inventory');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'auto-scanner' | 'qr-inbound' | 'near-expiry' | 'opname' | 'damage'>('inventory');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Semua');
 
@@ -261,6 +265,32 @@ export const GudangView: React.FC = () => {
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto no-scrollbar">
         <button
           type="button"
+          onClick={() => setActiveTab('qr-inbound')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
+            activeTab === 'qr-inbound'
+              ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-xs'
+              : 'text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200'
+          }`}
+        >
+          <QrCode className="w-4 h-4" />
+          <span>Input QR Code Gudang</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('auto-scanner')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
+            activeTab === 'auto-scanner'
+              ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-xs'
+              : 'text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200'
+          }`}
+        >
+          <Barcode className="w-4 h-4" />
+          <span>Input Stok Otomatis (Scan Gudang)</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('inventory')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
             activeTab === 'inventory'
@@ -308,6 +338,20 @@ export const GudangView: React.FC = () => {
           Barang Rusak / Retur ({damageLogs.length})
         </button>
       </div>
+
+      {/* TAB: QR CODE INVENTORY INBOUND (SCAN & LOCK + MANUAL FORM) */}
+      {activeTab === 'qr-inbound' && (
+        <div className="pt-2">
+          <QrInventoryInboundView />
+        </div>
+      )}
+
+      {/* TAB 0: AUTOMATED CONTINUOUS BARCODE SCANNER */}
+      {activeTab === 'auto-scanner' && (
+        <div className="pt-2">
+          <AutoStockScannerView />
+        </div>
+      )}
 
       {/* TAB 1: MAIN INVENTORY CATALOG */}
       {activeTab === 'inventory' && (

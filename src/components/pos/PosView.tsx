@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { Product, Transaction } from '../../types';
 import { formatRupiah, formatNumber } from '../../utils/formatters';
@@ -51,6 +51,12 @@ export const PosView: React.FC = () => {
   const [holdNoteInput, setHoldNoteInput] = useState('');
   const [showHoldDialog, setShowHoldDialog] = useState(false);
 
+  // Manual Quantity Confirmation State for Scanned Barcode (NO AUTO-INCREMENT)
+  const [scannedProductForQty, setScannedProductForQty] = useState<Product | null>(null);
+  const [manualQtyInput, setManualQtyInput] = useState<string>('1');
+  const [selectedPriceType, setSelectedPriceType] = useState<'retail' | 'wholesale'>('retail');
+  const manualQtyInputRef = useRef<HTMLInputElement | null>(null);
+
   // Categories extraction
   const categories = useMemo(() => {
     const list = ['Semua', ...Array.from(new Set(products.map(p => p.category)))];
@@ -71,7 +77,7 @@ export const PosView: React.FC = () => {
     });
   }, [products, searchQuery, selectedCategory]);
 
-  // Fast Barcode Scanner Simulation Handler
+  // Fast Barcode Scanner Handler (NO AUTO-INCREMENT)
   const handleBarcodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const code = barcodeInput.trim();
@@ -79,11 +85,29 @@ export const PosView: React.FC = () => {
 
     const matched = products.find(p => p.barcode === code);
     if (matched) {
-      addToCart(matched, 1);
+      // Do NOT auto-increment! Prompt manual quantity input
+      setScannedProductForQty(matched);
+      setManualQtyInput('1');
+      setSelectedPriceType('retail');
       setBarcodeInput('');
+      setTimeout(() => {
+        if (manualQtyInputRef.current) {
+          manualQtyInputRef.current.focus();
+          manualQtyInputRef.current.select();
+        }
+      }, 80);
     } else {
       alert(`Barang dengan barcode ${code} tidak ditemukan!`);
     }
+  };
+
+  const handleConfirmScannedProductQty = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scannedProductForQty) return;
+    const qty = Math.max(0.01, parseFloat(manualQtyInput) || 1);
+    addToCart(scannedProductForQty, qty, selectedPriceType, scannedProductForQty.baseUnit);
+    setScannedProductForQty(null);
+    setManualQtyInput('1');
   };
 
   // Cart total calculations
@@ -416,7 +440,7 @@ export const PosView: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => removeFromCart(idx)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                        className="p-2 min-h-[38px] min-w-[38px] flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer active:scale-90"
                         title="Hapus barang"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -426,16 +450,16 @@ export const PosView: React.FC = () => {
                     {/* Quantity Adjustment + Subtotal */}
                     <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
                       {/* Stepper with Decimal Support */}
-                      <div className="flex items-center gap-1.5 bg-white px-2 py-1 rounded-xl border border-slate-200">
+                      <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200">
                         <button
                           type="button"
                           onClick={() => {
                             const step = item.product.allowDecimal ? 0.25 : 1;
                             updateCartQuantity(idx, Math.max(0, item.quantity - step));
                           }}
-                          className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold"
+                          className="min-w-[34px] min-h-[34px] w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 active:scale-90 flex items-center justify-center text-slate-700 font-bold transition"
                         >
-                          <Minus className="w-3 h-3" />
+                          <Minus className="w-3.5 h-3.5" />
                         </button>
 
                         <FormattedNumberInput
@@ -455,9 +479,9 @@ export const PosView: React.FC = () => {
                             const step = item.product.allowDecimal ? 0.25 : 1;
                             updateCartQuantity(idx, item.quantity + step);
                           }}
-                          className="w-6 h-6 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold"
+                          className="min-w-[34px] min-h-[34px] w-8 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-90 text-white flex items-center justify-center font-bold transition shadow-xs shadow-emerald-700/20"
                         >
-                          <Plus className="w-3 h-3" />
+                          <Plus className="w-3.5 h-3.5" />
                         </button>
                       </div>
 
@@ -554,6 +578,143 @@ export const PosView: React.FC = () => {
                   className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold"
                 >
                   Tahan Sekarang
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Scanned Barcode Manual Quantity Modal (NO AUTO-INCREMENT) */}
+      {scannedProductForQty && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                  Barcode Berhasil Dipindai
+                </span>
+                <h3 className="font-black text-slate-900 text-base mt-1 leading-snug">
+                  {scannedProductForQty.name}
+                </h3>
+                <p className="text-xs text-slate-500 font-mono mt-0.5">
+                  Kode: {scannedProductForQty.barcode} • Kategori: {scannedProductForQty.category}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setScannedProductForQty(null)}
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-xl hover:bg-slate-100 text-sm font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Price Type Selector */}
+            <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setSelectedPriceType('retail')}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
+                  selectedPriceType === 'retail'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Eceran: {formatRupiah(scannedProductForQty.sellPriceRetail)}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedPriceType('wholesale')}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
+                  selectedPriceType === 'wholesale'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Grosir: {formatRupiah(scannedProductForQty.sellPriceWholesale)}
+              </button>
+            </div>
+
+            {/* Manual Quantity Form */}
+            <form onSubmit={handleConfirmScannedProductQty} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Masukkan Jumlah Kuantitas ({scannedProductForQty.baseUnit}):
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setManualQtyInput(prev => String(Math.max(1, (parseFloat(prev) || 1) - 1)))}
+                    className="w-12 h-12 rounded-2xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 font-black text-xl flex items-center justify-center border border-slate-200 transition cursor-pointer"
+                  >
+                    -
+                  </button>
+                  <input
+                    ref={manualQtyInputRef}
+                    type="number"
+                    step="any"
+                    min="0.01"
+                    required
+                    value={manualQtyInput}
+                    onChange={e => setManualQtyInput(e.target.value)}
+                    className="flex-1 h-12 bg-white border-2 border-emerald-500 rounded-2xl text-center font-black text-xl text-slate-900 focus:outline-none focus:ring-4 focus:ring-emerald-500/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setManualQtyInput(prev => String((parseFloat(prev) || 0) + 1))}
+                    className="w-12 h-12 rounded-2xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 font-black text-xl flex items-center justify-center border border-slate-200 transition cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Preset Buttons */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                {[1, 2, 5, 10, 12, 24, 50].map(num => (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => setManualQtyInput(String(num))}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+                      parseFloat(manualQtyInput) === num
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {num}
+                  </button>
+                ))}
+              </div>
+
+              {/* Total Preview */}
+              <div className="bg-emerald-50 p-3 rounded-2xl border border-emerald-100 flex items-center justify-between">
+                <span className="text-xs text-emerald-800 font-medium">Subtotal Transaksi:</span>
+                <span className="font-black text-emerald-700 text-base">
+                  {formatRupiah(
+                    (parseFloat(manualQtyInput) || 1) *
+                      (selectedPriceType === 'retail'
+                        ? scannedProductForQty.sellPriceRetail
+                        : scannedProductForQty.sellPriceWholesale)
+                  )}
+                </span>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setScannedProductForQty(null)}
+                  className="w-full py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold transition shadow-md shadow-emerald-600/20 cursor-pointer"
+                >
+                  Tambahkan ke Keranjang
                 </button>
               </div>
             </form>

@@ -8,6 +8,7 @@ import { StoreProvider, useStore } from './context/StoreContext';
 import { LoginScreen } from './components/LoginScreen';
 import { Navbar } from './components/Navbar';
 import { PosView } from './components/pos/PosView';
+import { BarcodePosCashier } from './components/pos/BarcodePosCashier';
 import { HistoryView } from './components/pos/HistoryView';
 import { GudangView } from './components/gudang/GudangView';
 import { SupplierView } from './components/gudang/SupplierView';
@@ -15,21 +16,21 @@ import { KasbonView } from './components/kasbon/KasbonView';
 import { AdminDashboardView } from './components/admin/AdminDashboardView';
 import { ReportsView } from './components/admin/ReportsView';
 import { ShiftModal } from './components/pos/ShiftModal';
+import { AiProductScannerDashboard } from './components/scanner/AiProductScannerDashboard';
+import { AutoStockScannerView } from './components/gudang/AutoStockScannerView';
 
 const MainContent: React.FC = () => {
   const { currentUser } = useStore();
-  const [currentTab, setCurrentTab] = useState<string>('pos');
+  const [currentTab, setCurrentTab] = useState<string>('scanner');
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
 
-  // Set appropriate starting tab based on user role
+  // Set initial tab to camera scanner dashboard
   useEffect(() => {
     if (!currentUser) return;
-    if (currentUser.role === 'gudang') {
-      setCurrentTab('gudang');
-    } else {
-      setCurrentTab('pos');
+    if (!currentTab) {
+      setCurrentTab('scanner');
     }
-  }, [currentUser?.id, currentUser?.role]);
+  }, [currentUser?.id]);
 
   if (!currentUser) {
     return <LoginScreen />;
@@ -44,6 +45,9 @@ const MainContent: React.FC = () => {
       />
 
       <main className="flex-1">
+        {currentTab === 'scanner' && <AiProductScannerDashboard />}
+        {currentTab === 'auto-stock-scanner' && <AutoStockScannerView />}
+        {currentTab === 'barcode-pos' && <BarcodePosCashier />}
         {currentTab === 'pos' && <PosView />}
         {currentTab === 'history' && <HistoryView />}
         {currentTab === 'kasbon' && <KasbonView />}

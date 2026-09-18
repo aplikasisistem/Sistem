@@ -1,16 +1,25 @@
-export type UserRole = 'kasir' | 'gudang' | 'admin';
+export type UserRole = 'kasir' | 'gudang' | 'admin' | 'warehouse_admin';
 
 export interface UserAccount {
   id: string;
   username: string;
   name: string;
   role: UserRole;
+  manage_inventory?: boolean; // Full access for warehouse admin inventory management
   password?: string;
   isActive: boolean;
   phone?: string;
 }
 
 export type User = UserAccount;
+
+export function isWarehouseAdmin(user: UserAccount | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role === 'warehouse_admin') return true;
+  if (user.role === 'admin') return true;
+  if (user.role === 'gudang' && user.manage_inventory === true) return true;
+  return false;
+}
 
 
 export type UnitType = 'kg' | 'pcs' | 'pouch' | 'butir' | 'renceng' | 'dus' | 'sak' | 'liter' | 'pack' | 'tabung' | 'galon';
@@ -179,4 +188,23 @@ export interface StockOpnameRecord {
   unit: string;
   reason: string;
   inspector: string;
+}
+
+export interface StockLog {
+  id: string;
+  productId: string;
+  barcode: string;
+  productName: string;
+  category?: string;
+  previousStock: number;
+  addedQty: number;
+  currentStock: number;
+  unit: string;
+  source: 'camera_auto_scan' | 'manual_barcode' | 'batch_inbound';
+  userId: string;
+  userName: string;
+  userRole: string;
+  timestamp: string;
+  batchNumber?: string;
+  notes?: string;
 }

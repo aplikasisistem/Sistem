@@ -54,6 +54,28 @@
         "status": { "type": "string" }
       },
       "required": ["id", "invoiceNumber", "timestamp", "cashierName", "totalAmount", "paymentMethod", "status"]
+    },
+    "StockLog": {
+      "title": "StockLog",
+      "description": "Log of stock inbound or automated scanner additions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "barcode": { "type": "string" },
+        "productName": { "type": "string" },
+        "previousStock": { "type": "number" },
+        "addedQty": { "type": "number" },
+        "currentStock": { "type": "number" },
+        "unit": { "type": "string" },
+        "source": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userRole": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "batchNumber": { "type": "string" }
+      },
+      "required": ["id", "productId", "barcode", "productName", "addedQty", "currentStock", "source", "timestamp"]
     }
   },
   "firestore": {
@@ -68,6 +90,10 @@
     "/transactions/{transactionId}": {
       "schema": "Transaction",
       "description": "Completed or recorded POS sales transactions"
+    },
+    "/stock_logs/{logId}": {
+      "schema": "StockLog",
+      "description": "Log records for inbound automated stock additions and movements"
     }
   }
 }

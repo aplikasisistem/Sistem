@@ -1,6 +1,6 @@
 {
   "name": "Sistem Manajemen Sembako Terintegrasi - ALUNK STORE",
-  "description": "Aplikasi Kasir & Manajemen Toko Sembako Terintegrasi untuk ALUNK STORE dengan multi-role (Kasir, Gudang, Admin), manajemen kasbon, harga grosir bertingkat, konversi satuan, pelacakan kadaluwarsa, dan cetak struk & laporan PDF.",
-  "requestFramePermissions": [],
+  "description": "Aplikasi Kasir & Manajemen Toko Sembako Terintegrasi untuk ALUNK STORE dengan scan kamera HP AI Gemini, stok masuk/keluar, kasir, kasbon, dan laporan profit harian bersih.",
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

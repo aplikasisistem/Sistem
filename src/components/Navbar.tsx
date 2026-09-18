@@ -15,7 +15,8 @@ import {
   Tag,
   FileText,
   Cloud,
-  CloudOff
+  CloudOff,
+  Barcode
 } from 'lucide-react';
 import { formatRupiah } from '../utils/formatters';
 
@@ -40,6 +41,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     switch (role) {
       case 'admin':
         return { label: 'Pemilik (Admin)', bg: 'bg-amber-100 text-amber-800 border-amber-300' };
+      case 'warehouse_admin':
+        return { label: 'Admin Gudang (Inbound)', bg: 'bg-teal-100 text-teal-800 border-teal-300' };
       case 'gudang':
         return { label: 'User Gudang (In)', bg: 'bg-teal-100 text-teal-800 border-teal-300' };
       case 'kasir':
@@ -156,6 +159,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             <>
               <button
                 type="button"
+                id="tab-barcode-pos"
+                onClick={() => setCurrentTab('barcode-pos')}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  currentTab === 'barcode-pos'
+                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-700/20'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Barcode className="w-4 h-4" />
+                <span>Kasir Barcode Cepat</span>
+              </button>
+
+              <button
+                type="button"
                 id="tab-pos"
                 onClick={() => setCurrentTab('pos')}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
@@ -165,7 +182,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }`}
               >
                 <ShoppingBag className="w-4 h-4" />
-                <span>Kasir (POS)</span>
+                <span>Kasir Manual (POS)</span>
               </button>
 
               <button
@@ -199,8 +216,22 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
 
           {/* Gudang Tabs */}
-          {(role === 'gudang' || role === 'admin') && (
+          {(role === 'gudang' || role === 'warehouse_admin' || role === 'admin') && (
             <>
+              <button
+                type="button"
+                id="tab-auto-stock-scanner"
+                onClick={() => setCurrentTab('auto-stock-scanner')}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  currentTab === 'auto-stock-scanner'
+                    ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md shadow-teal-700/25'
+                    : 'text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200'
+                }`}
+              >
+                <Barcode className="w-4 h-4" />
+                <span>Input Stok Otomatis (Scan Gudang)</span>
+              </button>
+
               <button
                 type="button"
                 id="tab-gudang"
