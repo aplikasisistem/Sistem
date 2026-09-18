@@ -22,7 +22,7 @@ export function isWarehouseAdmin(user: UserAccount | null | undefined): boolean 
 }
 
 
-export type UnitType = 'kg' | 'pcs' | 'pouch' | 'butir' | 'renceng' | 'dus' | 'sak' | 'liter' | 'pack' | 'tabung' | 'galon';
+export type UnitType = 'kg' | 'pcs' | 'pouch' | 'butir' | 'renceng' | 'dus' | 'sak' | 'liter' | 'pack' | 'tabung' | 'galon' | 'botol';
 
 export interface Product {
   id: string;

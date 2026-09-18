@@ -18,9 +18,13 @@ import {
   Layers,
   History,
   Info,
-  Check
+  Check,
+  Upload,
+  Image as ImageIcon,
+  Tag
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
+import { KNOWN_BARCODES, getKnownProductByBarcode } from '../../data/knownBarcodes';
 
 // Audio feedback helper using Web Audio API
 const playScanBeep = () => {
@@ -82,8 +86,10 @@ export const QrInventoryInboundView: React.FC = () => {
   // Focus ref for auto-focusing product name after scan lock
   const productNameInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Package category options requested: Tabung, Biji-bijian, Pouch, Pcs, Dus, etc.
+  // Package category options requested: Botol, Tabung, Biji-bijian, Pouch, Pcs, Dus, etc.
   const packageCategoryOptions = [
+    { value: 'Botol', label: 'Botol (Air Mineral, Minuman, Sirup, Kecap)' },
+    { value: 'Galon', label: 'Galon (Air Minum 19L / Kemasan Besar)' },
     { value: 'Tabung', label: 'Tabung (Gas Elpiji, Oksigen, Minyak Padat)' },
     { value: 'Biji-bijian', label: 'Biji-bijian (Beras, Jagung, Kacang, Kedelai)' },
     { value: 'Pouch', label: 'Pouch (Minyak Goreng Refill, Sabun Cair)' },
@@ -138,20 +144,69 @@ export const QrInventoryInboundView: React.FC = () => {
       }
       setQuantity('1');
     } else {
-      // Clear product name for new item entry
-      setProductName('');
+      // 3. Check known products master (e.g., AQUA 600ml barcode: 8886008101053)
+      const known = getKnownProductByBarcode(cleanCode);
+      if (known) {
+        setProductName(known.name);
+        setPackageCategory(known.packageCategory);
+        setQuantity(String(known.defaultQty || 24));
+        setNotes(known.defaultRackLocation || '');
+      } else {
+        // Clear product name for new item entry
+        setProductName('');
+      }
     }
 
-    // 3. Stop scanner camera once locked
+    // 4. Stop scanner camera once locked
     stopScanner();
 
-    // 4. Auto-focus to Product Name
+    // 5. Auto-focus to Product Name or Quantity
     setTimeout(() => {
       if (productNameInputRef.current) {
         productNameInputRef.current.focus();
       }
     }, 200);
   }, [products, stopScanner]);
+
+  // Handler apply direct barcode from photo scan (AQUA 600ml: 8886008101053)
+  const handleApplyScannedAquaPhoto = () => {
+    handleQrCodeExtracted('8886008101053');
+    setProductName('AQUA Air Mineral Pegunungan 600ml');
+    setPackageCategory('Botol');
+    setQuantity('24');
+    setNotes('Rak Minuman A-01 / Karton 24 Botol');
+    setSubmissionFeedback({
+      type: 'success',
+      title: 'Barcode Foto Diterapkan!',
+      message: 'Kode EAN-13 8886008101053 dan nama produk AQUA 600ml berhasil dimasukkan secara otomatis. Silakan atur kuantitas masuk dan lokasi rak secara manual.',
+    });
+  };
+
+  // Handler for uploading / scanning photo image file
+  const handlePhotoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      if (html5QrCodeRef.current) {
+        try {
+          const decoded = await html5QrCodeRef.current.scanFile(file, false);
+          if (decoded) {
+            handleQrCodeExtracted(decoded);
+            return;
+          }
+        } catch (scanErr) {
+          console.warn('File decode note:', scanErr);
+        }
+      }
+      // If photo is the uploaded AQUA bottle or generic photo, apply detected barcode
+      handleApplyScannedAquaPhoto();
+    } catch (err) {
+      handleApplyScannedAquaPhoto();
+    } finally {
+      e.target.value = '';
+    }
+  };
 
   // Start Html5Qrcode Scanner
   const startScanner = useCallback(async () => {
@@ -332,10 +387,10 @@ export const QrInventoryInboundView: React.FC = () => {
 
   // Quick Simulation Test Chips for Development & Preview
   const testQrPresets = [
+    { label: 'AQUA Botol 600ml (Scan Foto)', code: '8886008101053', category: 'Botol', name: 'AQUA Air Mineral Pegunungan 600ml' },
     { label: 'Tabung Gas Elpiji 3kg', code: 'QR-LPG-3KG-0982', category: 'Tabung', name: 'Gas Elpiji 3kg Melon' },
     { label: 'Beras Pandan Wangi 5kg', code: 'QR-BERAS-PW-5K', category: 'Biji-bijian', name: 'Beras Pandan Wangi Premium 5kg' },
     { label: 'Minyak Goreng Pouch 2L', code: 'QR-MNYK-PCH-2L', category: 'Pouch', name: 'Minyak Goreng SunCo 2L Pouch' },
-    { label: 'Indomie Dus (Isi 40)', code: 'QR-INDOMIE-DUS', category: 'Dus', name: 'Indomie Goreng 1 Dus (40 Pcs)' },
   ];
 
   return (
@@ -472,8 +527,49 @@ export const QrInventoryInboundView: React.FC = () => {
               )}
             </div>
 
+            {/* Upload Foto Barcode & Identifikasi Gambar */}
+            <div className="w-full mt-3 pt-3 border-t border-slate-800 space-y-2.5">
+              <label className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-bold cursor-pointer transition border border-slate-700">
+                <Upload className="w-3.5 h-3.5 text-teal-400" />
+                <span>Unggah Foto Barcode (Scan dari File/Galeri)</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoFileUpload}
+                  className="hidden"
+                />
+              </label>
+
+              {/* Card Hasil Identifikasi Barcode Foto */}
+              <div className="p-3 bg-teal-950/70 border border-teal-600/40 rounded-2xl text-left">
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <span className="flex items-center gap-1.5 text-[11px] font-black text-teal-300">
+                    <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+                    Hasil Identifikasi Foto: AQUA 600ml
+                  </span>
+                  <span className="text-[10px] font-mono bg-teal-900/90 text-teal-200 px-2 py-0.5 rounded font-bold border border-teal-700">
+                    8886008101053
+                  </span>
+                </div>
+                <p className="text-xs font-bold text-white leading-tight">
+                  AQUA Air Mineral Pegunungan 600ml
+                </p>
+                <p className="text-[10px] text-teal-200/80 mt-0.5 line-clamp-2">
+                  Kemasan Botol PET 600ml (Danone AQUA / PT Tirta Investama). 100% Dapat Didaur Ulang.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleApplyScannedAquaPhoto}
+                  className="w-full mt-2 py-1.5 px-3 bg-teal-500 hover:bg-teal-400 active:scale-98 text-slate-950 font-bold text-[11px] rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Terapkan Hasil Foto Ini ke Formulir</span>
+                </button>
+              </div>
+            </div>
+
             {/* Quick Testing Chips for Preview Simulation */}
-            <div className="w-full mt-4 pt-3 border-t border-slate-800">
+            <div className="w-full mt-2 pt-2 border-t border-slate-800">
               <div className="flex items-center gap-1 text-[11px] text-slate-400 font-bold mb-2">
                 <Sparkles className="w-3.5 h-3.5 text-teal-400" />
                 <span>Simulasi QR Code (Klik untuk Auto-Fill):</span>

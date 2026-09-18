@@ -76,19 +76,23 @@ Analisis frame foto dari kamera ini dengan teliti. Foto ini diambil oleh kamera 
 ${knownItemsText}
 
 TUGAS UTAMA:
-1. Kenali produk/barang yang ada pada gambar (nama barang lengkap beserta merk, varian, atau netto/ukuran jika terlihat, contoh: "Minyak Goreng Bimoli 1L", "Beras Rojolele 5kg", "Indomie Goreng Spesial 85g", "Kopi Kapal Api Special Mix 10x24g", "Gula Pasir Gulaku Kuning 1kg", "Telur Ayam 1kg", "Kecap Manis Bango 520ml", "Sabun Lifebuoy Total 10 85g").
-2. Jika produk ini cocok atau merupakan varian dari daftar barang yang ada di toko di atas, utamakan mencocokkan namanya dengan nama yang ada di daftar stok.
-3. Tentukan kategori sembako yang tepat (misal: "Beras & Biji-bijian", "Minyak & Margarin", "Gula & Pemanis", "Mie & Pasta", "Kopi & Teh", "Bumbu & Rempah", "Telur & Susu", "Makanan Ringan", "Minuman", "Perlengkapan Rumah", "Lainnya").
-4. Tentukan estimasi harga jual wajar dalam Rupiah (integer angka tanpa titik/koma) jika ini barang baru atau belum ada di daftar.
-5. Tentukan satuan barang (misal: "pcs", "bks", "kg", "botol", "liter", "dus", "renteng").
+1. Kenali produk/barang yang ada pada gambar (nama barang lengkap beserta merk, varian, atau netto/ukuran jika terlihat, contoh: "AQUA Air Mineral Pegunungan 600ml", "Minyak Goreng Bimoli 1L", "Beras Rojolele 5kg", "Indomie Goreng Spesial 85g").
+2. Jika terdapat angka barcode / EAN-13 yang tercetak di bawah garis barcode (misal: "8886008101053" untuk Aqua 600ml), ekstrak nomor barcode tersebut secara akurat.
+3. Tuliskan spesifikasi produk lengkap (misal: "Air Mineral Pegunungan, Botol PET 600ml, Danone AQUA").
+4. Jika produk ini cocok atau merupakan varian dari daftar barang yang ada di toko di atas, utamakan mencocokkan namanya dengan nama yang ada di daftar stok.
+5. Tentukan kategori sembako yang tepat (misal: "Minuman Kemasan", "Beras & Biji-bijian", "Minyak Goreng", "Gula & Pemanis", "Mi Instan & Pasta", dll).
+6. Tentukan estimasi harga jual wajar dalam Rupiah (integer angka tanpa titik/koma).
+7. Tentukan satuan barang (misal: "botol", "pcs", "kg", "pouch", "liter", "dus").
 
 KEMBALIKAN HANYA OBJEK JSON MURNI (tanpa format markdown/code block):
 {
-  "nama_barang": "Nama Produk Terdeteksi",
-  "kategori": "Kategori Produk",
-  "satuan": "pcs",
-  "estimasi_harga_jual": 15000,
-  "confidence": 0.95,
+  "nama_barang": "AQUA Air Mineral Pegunungan 600ml",
+  "barcode": "8886008101053",
+  "spesifikasi": "Air Mineral Pegunungan, Botol PET 600ml (Danone AQUA)",
+  "kategori": "Minuman Kemasan",
+  "satuan": "botol",
+  "estimasi_harga_jual": 3500,
+  "confidence": 0.98,
   "matched_existing": true
 }`;
 
@@ -140,6 +144,8 @@ KEMBALIKAN HANYA OBJEK JSON MURNI (tanpa format markdown/code block):
           ai_available: true,
           data: {
             nama_barang: parsedResult.nama_barang || '',
+            barcode: parsedResult.barcode || '',
+            spesifikasi: parsedResult.spesifikasi || '',
             kategori: parsedResult.kategori || 'Sembako',
             satuan: parsedResult.satuan || 'pcs',
             estimasi_harga_jual: Number(parsedResult.estimasi_harga_jual) || 0,
@@ -199,6 +205,7 @@ KEMBALIKAN HANYA OBJEK JSON MURNI (tanpa format markdown/code block):
   // API Route: Scan Barcode POS Fast Detection
   const POS_DATABASE: Record<string, { sku: string; nama_produk: string; kategori: string; harga_satuan: number }> = {
     '8999999123456': { sku: 'MIE-001', nama_produk: 'Indomie Goreng Spesial 85g', kategori: 'Makanan Instan', harga_satuan: 3500 },
+    '8886008101053': { sku: 'AQUA-600', nama_produk: 'AQUA Air Mineral Pegunungan 600ml', kategori: 'Minuman Kemasan', harga_satuan: 3500 },
     '8991001100123': { sku: 'MNM-001', nama_produk: 'Aqua Air Mineral 600ml', kategori: 'Minuman', harga_satuan: 4000 },
     '8886008101050': { sku: 'MNM-002', nama_produk: 'Teh Botol Sosro Kotak 250ml', kategori: 'Minuman', harga_satuan: 4500 },
     '8991001': { sku: 'BRS-001', nama_produk: 'Beras Rojolele Super 5kg', kategori: 'Beras', harga_satuan: 72000 },
@@ -316,6 +323,18 @@ KEMBALIKAN HANYA OBJEK JSON MURNI (tanpa format markdown/code block):
   }
 
   const WAREHOUSE_DB: Record<string, WarehouseProductItem> = {
+    '8886008101053': {
+      id: 'prod_aqua_600_danone',
+      barcode: '8886008101053',
+      name: 'AQUA Air Mineral Pegunungan 600ml',
+      category: 'Minuman Kemasan',
+      baseUnit: 'botol',
+      stock: 24,
+      minStock: 12,
+      costPrice: 2800,
+      retailPrice: 3500,
+      wholesalePrice: 3200,
+    },
     '8994557315125': {
       id: 'prod_sania_2l',
       barcode: '8994557315125',
