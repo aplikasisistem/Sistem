@@ -25,6 +25,7 @@ import {
   INITIAL_TRANSACTIONS,
   INITIAL_EXPENSES,
   INITIAL_CURRENT_SHIFT,
+  INITIAL_SHIFT_HISTORY,
   INITIAL_CATEGORIES
 } from '../data/initialData';
 import {
@@ -108,10 +109,21 @@ interface StoreContextType {
   restoreHeldTransaction: (id: string) => void;
   deleteHeldTransaction: (id: string) => void;
 
-  // Shift
+  // Shift & Shift Reconciliation
   currentShift: CashierShift | null;
+  shiftHistory: CashierShift[];
   openShift: (startingCash: number, notes?: string) => void;
-  closeShift: (actualCash: number, notes?: string) => CashierShift | null;
+  closeShift: (
+    actualCash: number,
+    notes?: string,
+    denominationCounts?: Record<string, number>
+  ) => CashierShift | null;
+  reconcileShift: (
+    shiftId: string,
+    actualCash: number,
+    denominationCounts?: Record<string, number>,
+    notes?: string
+  ) => void;
 
   // Checkout & Transactions (Supabase Database)
   transactions: Transaction[];
@@ -173,6 +185,7 @@ const STORAGE_KEYS = {
   PRODUCTS: 'alunk_products',
   HELD_TRX: 'alunk_held_trx',
   CURRENT_SHIFT: 'alunk_current_shift',
+  SHIFT_HISTORY: 'alunk_shift_history',
   SUPPLIERS: 'alunk_suppliers',
   PURCHASES: 'alunk_purchases',
   DAMAGE_LOGS: 'alunk_damage_logs',
@@ -218,6 +231,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [currentShift, setCurrentShift] = useState<CashierShift | null>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_SHIFT);
     return saved ? JSON.parse(saved) : INITIAL_CURRENT_SHIFT;
+  });
+
+  const [shiftHistory, setShiftHistory] = useState<CashierShift[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.SHIFT_HISTORY);
+    return saved ? JSON.parse(saved) : INITIAL_SHIFT_HISTORY;
   });
 
   const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
@@ -370,11 +388,42 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       }
     );
 
+    // 5. Real-time Shifts & Shift History Sync
+    const unsubShifts = onSnapshot(
+      collection(db, 'shifts'),
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const loadedShifts: CashierShift[] = [];
+          let openShiftFound: CashierShift | null = null;
+          snapshot.forEach(docSnap => {
+            const shift = docSnap.data() as CashierShift;
+            if (shift.status === 'open') {
+              openShiftFound = shift;
+            } else {
+              loadedShifts.push(shift);
+            }
+          });
+          loadedShifts.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+          setShiftHistory(loadedShifts);
+          if (openShiftFound) {
+            setCurrentShift(openShiftFound);
+          }
+          try {
+            localStorage.setItem(STORAGE_KEYS.SHIFT_HISTORY, JSON.stringify(loadedShifts));
+          } catch (e) {}
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'shifts');
+      }
+    );
+
     return () => {
       unsubProducts();
       unsubCategories();
       unsubExpenses();
       unsubStockLogs();
+      unsubShifts();
     };
   }, []);
 
@@ -1239,37 +1288,108 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setHeldTransactions(prev => prev.filter(h => h.id !== id));
   };
 
-  // Cashier Shifts
+  // Cashier Shifts & Reconciliation
   const openShift = (startingCash: number, notes?: string) => {
+    const startAmount = Math.max(0, Number(startingCash) || 0);
     const newShift: CashierShift = {
       id: `shift_${Date.now()}`,
       cashierId: currentUser?.id || 'usr_kasir_1',
       cashierName: currentUser?.name || 'Kasir',
       startTime: new Date().toISOString(),
-      startingCash,
+      startingCash: startAmount,
       totalCashSales: 0,
+      totalCashIntake: 0,
+      totalExpensesPaid: 0,
       totalQrisSales: 0,
       totalKasbonSales: 0,
-      expectedDrawerCash: startingCash,
+      expectedDrawerCash: startAmount,
       status: 'open',
       notes,
     };
     setCurrentShift(newShift);
+    try {
+      localStorage.setItem(STORAGE_KEYS.CURRENT_SHIFT, JSON.stringify(newShift));
+    } catch (e) {}
+    safeSetDoc(doc(db, 'shifts', newShift.id), newShift).catch(err => {
+      handleFirestoreError(err, OperationType.CREATE, `shifts/${newShift.id}`);
+    });
   };
 
-  const closeShift = (actualCash: number, notes?: string): CashierShift | null => {
+  const closeShift = (
+    actualCash: number,
+    notes?: string,
+    denominationCounts?: Record<string, number>
+  ): CashierShift | null => {
     if (!currentShift) return null;
-    const discrepancy = actualCash - currentShift.expectedDrawerCash;
+    const intake = currentShift.totalCashIntake ?? currentShift.totalCashSales ?? 0;
+    const expensesPaid = currentShift.totalExpensesPaid ?? 0;
+    const expected = currentShift.startingCash + intake - expensesPaid;
+    const discrepancy = actualCash - expected;
+
     const closed: CashierShift = {
       ...currentShift,
       endTime: new Date().toISOString(),
+      totalCashIntake: intake,
+      totalExpensesPaid: expensesPaid,
+      expectedDrawerCash: expected,
       actualDrawerCash: actualCash,
       discrepancy,
       status: 'closed',
-      notes: notes ? `${currentShift.notes || ''} | ${notes}` : currentShift.notes,
+      notes: notes ? `${currentShift.notes || ''} | ${notes}`.trim().replace(/^\|\s*/, '') : currentShift.notes,
+      denominationCounts,
+      reconciledAt: new Date().toISOString(),
+      reconciledBy: currentUser?.name || 'Kasir',
     };
+
+    setShiftHistory(prev => {
+      const next = [closed, ...prev.filter(s => s.id !== closed.id)];
+      try {
+        localStorage.setItem(STORAGE_KEYS.SHIFT_HISTORY, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
     setCurrentShift(null);
+
+    try {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_SHIFT);
+    } catch (e) {}
+
+    safeSetDoc(doc(db, 'shifts', closed.id), closed).catch(err => {
+      handleFirestoreError(err, OperationType.UPDATE, `shifts/${closed.id}`);
+    });
+
     return closed;
+  };
+
+  const reconcileShift = (
+    shiftId: string,
+    actualCash: number,
+    denominationCounts?: Record<string, number>,
+    notes?: string
+  ) => {
+    setShiftHistory(prev => {
+      const target = prev.find(s => s.id === shiftId);
+      if (!target) return prev;
+      const expected = target.expectedDrawerCash;
+      const discrepancy = actualCash - expected;
+      const updated: CashierShift = {
+        ...target,
+        actualDrawerCash: actualCash,
+        discrepancy,
+        denominationCounts: denominationCounts || target.denominationCounts,
+        notes: notes !== undefined ? notes : target.notes,
+        reconciledAt: new Date().toISOString(),
+        reconciledBy: currentUser?.name || target.cashierName,
+      };
+      const next = prev.map(s => (s.id === shiftId ? updated : s));
+      try {
+        localStorage.setItem(STORAGE_KEYS.SHIFT_HISTORY, JSON.stringify(next));
+      } catch (e) {}
+      safeSetDoc(doc(db, 'shifts', updated.id), updated).catch(err => {
+        handleFirestoreError(err, OperationType.UPDATE, `shifts/${updated.id}`);
+      });
+      return next;
+    });
   };
 
   // Checkout Execution (Async dengan Database Supabase)
@@ -1349,12 +1469,17 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         else if (paymentMethod === 'qris') addQris = totalAmount;
         else if (paymentMethod === 'kasbon') addKasbon = totalAmount;
 
+        const newCashSales = prev.totalCashSales + addCash;
+        const newIntake = (prev.totalCashIntake ?? prev.totalCashSales) + addCash;
+        const expenses = prev.totalExpensesPaid ?? 0;
+
         return {
           ...prev,
-          totalCashSales: prev.totalCashSales + addCash,
+          totalCashSales: newCashSales,
+          totalCashIntake: newIntake,
           totalQrisSales: prev.totalQrisSales + addQris,
           totalKasbonSales: prev.totalKasbonSales + addKasbon,
-          expectedDrawerCash: prev.expectedDrawerCash + addCash,
+          expectedDrawerCash: Math.max(0, prev.startingCash + newIntake - expenses),
         };
       });
     }
@@ -1421,10 +1546,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (currentShift && currentShift.status === 'open') {
       setCurrentShift(prev => {
         if (!prev) return null;
+        const addCash = targetTrx.totalAmount;
+        const newIntake = (prev.totalCashIntake ?? prev.totalCashSales) + addCash;
+        const expenses = prev.totalExpensesPaid ?? 0;
         return {
           ...prev,
-          totalCashSales: prev.totalCashSales + targetTrx.totalAmount,
-          expectedDrawerCash: prev.expectedDrawerCash + targetTrx.totalAmount,
+          totalCashSales: prev.totalCashSales + addCash,
+          totalCashIntake: newIntake,
+          expectedDrawerCash: Math.max(0, prev.startingCash + newIntake - expenses),
         };
       });
     }
@@ -1807,6 +1936,20 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify([newExpense, ...expenses]));
     } catch (e) {}
 
+    // Deduct from active shift drawer
+    if (currentShift && currentShift.status === 'open') {
+      setCurrentShift(prev => {
+        if (!prev) return null;
+        const newExpenses = (prev.totalExpensesPaid || 0) + newExpense.amount;
+        const intake = prev.totalCashIntake ?? prev.totalCashSales ?? 0;
+        return {
+          ...prev,
+          totalExpensesPaid: newExpenses,
+          expectedDrawerCash: Math.max(0, prev.startingCash + intake - newExpenses),
+        };
+      });
+    }
+
     // Cloud Firestore Sync
     safeSetDoc(doc(db, 'expenses', newExpense.id), newExpense).catch(err => {
       handleFirestoreError(err, OperationType.CREATE, `expenses/${newExpense.id}`);
@@ -1814,10 +1957,24 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const deleteExpense = (id: string) => {
+    const target = expenses.find(e => e.id === id);
     setExpenses(prev => prev.filter(e => e.id !== id));
     try {
       localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(expenses.filter(e => e.id !== id)));
     } catch (e) {}
+
+    if (target && currentShift && currentShift.status === 'open') {
+      setCurrentShift(prev => {
+        if (!prev) return null;
+        const newExpenses = Math.max(0, (prev.totalExpensesPaid || 0) - target.amount);
+        const intake = prev.totalCashIntake ?? prev.totalCashSales ?? 0;
+        return {
+          ...prev,
+          totalExpensesPaid: newExpenses,
+          expectedDrawerCash: Math.max(0, prev.startingCash + intake - newExpenses),
+        };
+      });
+    }
 
     // Cloud Firestore Delete
     deleteDoc(doc(db, 'expenses', id)).catch(err => {
@@ -1835,6 +1992,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setTransactions(INITIAL_TRANSACTIONS);
     setExpenses(INITIAL_EXPENSES);
     setCurrentShift(INITIAL_CURRENT_SHIFT);
+    setShiftHistory(INITIAL_SHIFT_HISTORY);
     setCategories(INITIAL_CATEGORIES);
     setHeldTransactions([]);
     setDamageLogs([]);
@@ -1891,8 +2049,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         deleteHeldTransaction,
 
         currentShift,
+        shiftHistory,
         openShift,
         closeShift,
+        reconcileShift,
 
         transactions,
         checkout,

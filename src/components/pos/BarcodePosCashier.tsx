@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { Product } from '../../types';
 import { formatRupiah } from '../../utils/formatters';
@@ -53,8 +53,74 @@ export const DEFAULT_MOCK_PRODUCTS: MockProduct[] = [
   { id: 'P012', code: '8991012', name: 'Sabun Cuci Piring Sunlight 650ml', price: 13500, stock: 50, category: 'Sabun' },
 ];
 
+interface CartRowItemProps {
+  item: CashierCartItem;
+  index: number;
+  onIncrement: (index: number) => void;
+  onDecrement: (index: number) => void;
+  onRemove: (index: number) => void;
+}
+
+const CartRowItem = React.memo<CartRowItemProps>(({ item, index, onIncrement, onDecrement, onRemove }) => {
+  return (
+    <tr className="hover:bg-slate-50/60 transition">
+      {/* Product Code */}
+      <td className="py-3 px-4 font-mono font-bold text-slate-500 text-xs">
+        {item.product.code}
+      </td>
+      {/* Product Name */}
+      <td className="py-3 px-4 font-bold text-slate-900">
+        {item.product.name}
+      </td>
+      {/* Unit Price */}
+      <td className="py-3 px-4 text-right font-mono font-semibold text-slate-700">
+        {formatRupiah(item.product.price)}
+      </td>
+      {/* Quick Qty (+ / -) */}
+      <td className="py-3 px-4 text-center">
+        <div className="inline-flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+          <button
+            type="button"
+            onClick={() => onDecrement(index)}
+            title="Kurangi Qty (Hapus jika 0)"
+            className="w-7 h-7 rounded-lg bg-white hover:bg-rose-50 hover:text-rose-600 active:scale-95 text-slate-700 font-black flex items-center justify-center transition border border-slate-200 cursor-pointer text-xs"
+          >
+            <Minus className="w-3.5 h-3.5" />
+          </button>
+          <span className="w-8 text-center font-mono font-extrabold text-slate-900 text-sm">
+            {item.qty}
+          </span>
+          <button
+            type="button"
+            onClick={() => onIncrement(index)}
+            title="Tambah Qty"
+            className="w-7 h-7 rounded-lg bg-white hover:bg-emerald-50 hover:text-emerald-600 active:scale-95 text-slate-700 font-black flex items-center justify-center transition border border-slate-200 cursor-pointer text-xs"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </td>
+      {/* Subtotal */}
+      <td className="py-3 px-4 text-right font-mono font-black text-emerald-700 text-sm">
+        {formatRupiah(item.subtotal)}
+      </td>
+      {/* Action: Delete line item */}
+      <td className="py-3 px-4 text-center">
+        <button
+          type="button"
+          onClick={() => onRemove(index)}
+          title="Hapus baris ini"
+          className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </td>
+    </tr>
+  );
+});
+
 export const BarcodePosCashier: React.FC = () => {
-  const { products: storeProducts, currentUser } = useStore();
+  const { products: storeProducts, currentUser, transactions } = useStore();
 
   // Active state
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -107,6 +173,59 @@ export const BarcodePosCashier: React.FC = () => {
     return db;
   }, [storeProducts]);
 
+  // Calculate best-selling products (Produk Terlaris) dynamically from transactions & staple demand
+  const bestSellingProducts = React.useMemo(() => {
+    const salesMap: Record<string, number> = {};
+    if (transactions && transactions.length > 0) {
+      transactions.forEach((trx) => {
+        trx.items?.forEach((item) => {
+          const key = item.productId || item.name;
+          salesMap[key] = (salesMap[key] || 0) + (item.quantity || 1);
+        });
+      });
+    }
+
+    const popularStaples = [
+      'Beras',
+      'Minyak',
+      'Gulaku',
+      'Gula',
+      'Telur',
+      'Indomie',
+      'Mie',
+      'Kopi',
+      'Sania',
+      'Bimoli',
+      'Terigu',
+      'Segitiga',
+    ];
+
+    const list = combinedProductDb.map((p) => {
+      const soldCount = (salesMap[p.id] || 0) + (salesMap[p.name] || 0);
+      return {
+        ...p,
+        soldCount,
+      };
+    });
+
+    list.sort((a, b) => {
+      if (b.soldCount !== a.soldCount) {
+        return b.soldCount - a.soldCount;
+      }
+      const aIdx = popularStaples.findIndex(
+        (s) => a.category?.toLowerCase().includes(s.toLowerCase()) || a.name.toLowerCase().includes(s.toLowerCase())
+      );
+      const bIdx = popularStaples.findIndex(
+        (s) => b.category?.toLowerCase().includes(s.toLowerCase()) || b.name.toLowerCase().includes(s.toLowerCase())
+      );
+      const aRank = aIdx === -1 ? 999 : aIdx;
+      const bRank = bIdx === -1 ? 999 : bIdx;
+      return aRank - bRank;
+    });
+
+    return list.slice(0, 8);
+  }, [combinedProductDb, transactions]);
+
   // Audio synthesize scanner beep (Web Audio API)
   const playBeep = (isSuccess: boolean) => {
     if (!soundEnabled) return;
@@ -140,13 +259,13 @@ export const BarcodePosCashier: React.FC = () => {
   };
 
   // Keep barcode input automatically focused
-  const refocusInput = () => {
+  const refocusInput = useCallback(() => {
     setTimeout(() => {
       if (barcodeInputRef.current && document.activeElement?.tagName !== 'INPUT') {
         barcodeInputRef.current.focus();
       }
     }, 40);
-  };
+  }, []);
 
   // Refocus on mount and on interaction
   useEffect(() => {
@@ -155,13 +274,13 @@ export const BarcodePosCashier: React.FC = () => {
     }
   }, []);
 
-  const triggerAlert = (message: string, type: 'success' | 'error') => {
+  const triggerAlert = useCallback((message: string, type: 'success' | 'error') => {
     if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
     setAlertInfo({ message, type });
     alertTimerRef.current = setTimeout(() => {
       setAlertInfo(null);
     }, 3500);
-  };
+  }, []);
 
   // 1. AUTO-DETECT BARCODE SCAN (NO AUTO-INCREMENT)
   const processBarcodeScan = (codeToScan: string) => {
@@ -251,8 +370,8 @@ export const BarcodePosCashier: React.FC = () => {
     }
   };
 
-  // 2. INTERACTIVE CART CONTROLS
-  const handleIncrement = (index: number) => {
+  // 2. INTERACTIVE CART CONTROLS (Memoized to prevent unnecessary re-renders)
+  const handleIncrement = useCallback((index: number) => {
     setCart((prev) => {
       const updated = [...prev];
       if (updated[index]) {
@@ -266,9 +385,9 @@ export const BarcodePosCashier: React.FC = () => {
       return updated;
     });
     refocusInput();
-  };
+  }, [refocusInput]);
 
-  const handleDecrement = (index: number) => {
+  const handleDecrement = useCallback((index: number) => {
     setCart((prev) => {
       const updated = [...prev];
       if (updated[index]) {
@@ -288,30 +407,44 @@ export const BarcodePosCashier: React.FC = () => {
       return updated;
     });
     refocusInput();
-  };
+  }, [refocusInput]);
 
-  const handleRemove = (index: number) => {
-    const itemToRemove = cart[index];
-    setCart((prev) => prev.filter((_, i) => i !== index));
-    if (itemToRemove) {
-      triggerAlert(`"${itemToRemove.product.name}" dihapus dari keranjang.`, 'success');
-    }
+  const handleRemove = useCallback((index: number) => {
+    setCart((prev) => {
+      const itemToRemove = prev[index];
+      if (itemToRemove) {
+        triggerAlert(`"${itemToRemove.product.name}" dihapus dari keranjang.`, 'success');
+      }
+      return prev.filter((_, i) => i !== index);
+    });
     refocusInput();
-  };
+  }, [refocusInput, triggerAlert]);
 
-  const handleClearCart = () => {
-    if (cart.length === 0) return;
-    setCart([]);
+  const handleClearCart = useCallback(() => {
+    setCart((prev) => {
+      if (prev.length === 0) return prev;
+      triggerAlert('Keranjang transaksi berhasil dikosongkan.', 'success');
+      return [];
+    });
     setCashPaid(0);
-    triggerAlert('Keranjang transaksi berhasil dikosongkan.', 'success');
     refocusInput();
-  };
+  }, [refocusInput, triggerAlert]);
 
-  // Computations
-  const grandTotal = cart.reduce((sum, item) => sum + item.subtotal, 0);
-  const totalQty = cart.reduce((sum, item) => sum + item.qty, 0);
-  const changeAmount = Math.max(0, cashPaid - grandTotal);
-  const isCashUnderpaid = cashPaid > 0 && cashPaid < grandTotal;
+  // Memoized Computations (grandTotal, totalQty, changeAmount, isCashUnderpaid)
+  const { grandTotal, totalQty, changeAmount, isCashUnderpaid } = useMemo(() => {
+    let sumTotal = 0;
+    let sumQty = 0;
+    for (let i = 0; i < cart.length; i++) {
+      sumTotal += cart[i].subtotal;
+      sumQty += cart[i].qty;
+    }
+    return {
+      grandTotal: sumTotal,
+      totalQty: sumQty,
+      changeAmount: Math.max(0, cashPaid - sumTotal),
+      isCashUnderpaid: cashPaid > 0 && cashPaid < sumTotal,
+    };
+  }, [cart, cashPaid]);
 
   // 3. RECEIPT PRINT OUT (window.print() with @media print)
   const handlePrintReceipt = () => {
@@ -600,25 +733,43 @@ export const BarcodePosCashier: React.FC = () => {
           </div>
         )}
 
-        {/* Quick Sample Code Chips for Testing */}
-        <div>
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-            Klik Kode Sampel untuk Uji Coba Cepat:
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {combinedProductDb.slice(0, 10).map((p) => (
+        {/* Quick Sample Code Chips for Testing: PRODUK TERLARIS */}
+        <div className="bg-slate-50/80 rounded-2xl p-3 sm:p-4 border border-slate-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-base leading-none">🔥</span>
+              <p className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                Produk Terlaris Sembako (Klik Coba Cepat Barcode):
+              </p>
+            </div>
+            <span className="text-[11px] text-slate-500 font-medium">
+              Rekomendasi item paling laku untuk scan instan
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {bestSellingProducts.map((p, idx) => (
               <button
                 key={p.id}
                 type="button"
                 onClick={() => processBarcodeScan(p.code)}
-                className="px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 border border-slate-200 text-[11px] font-mono font-semibold transition cursor-pointer flex items-center gap-1 group"
-                title={`Simulasi scan: ${p.name}`}
+                className="px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 border border-slate-200 text-xs font-semibold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5 group active:scale-95"
+                title={`Coba cepat scan: ${p.name} (${p.code})`}
               >
-                <span className="text-slate-400 group-hover:text-emerald-500">🏷️</span>
-                <span>{p.code}</span>
-                <span className="text-[10px] text-slate-400 font-sans truncate max-w-[80px]">
-                  ({p.name.split(' ')[0]})
+                <span className="w-5 h-5 rounded-md bg-amber-50 text-amber-700 font-black text-[10px] flex items-center justify-center border border-amber-200 shrink-0">
+                  #{idx + 1}
                 </span>
+                <span className="font-mono text-slate-800 font-bold">{p.code}</span>
+                <span className="text-slate-700 font-medium truncate max-w-[120px] sm:max-w-[180px]">
+                  {p.name}
+                </span>
+                <span className="text-emerald-700 font-bold font-mono text-[11px] shrink-0">
+                  {formatRupiah(p.price)}
+                </span>
+                {p.soldCount > 0 && (
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold shrink-0">
+                    Terjual {p.soldCount}x
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -681,59 +832,14 @@ export const BarcodePosCashier: React.FC = () => {
                   </tr>
                 ) : (
                   cart.map((item, index) => (
-                    <tr key={`${item.product.code}-${index}`} className="hover:bg-slate-50/60 transition">
-                      {/* Product Code */}
-                      <td className="py-3 px-4 font-mono font-bold text-slate-500 text-xs">
-                        {item.product.code}
-                      </td>
-                      {/* Product Name */}
-                      <td className="py-3 px-4 font-bold text-slate-900">
-                        {item.product.name}
-                      </td>
-                      {/* Unit Price */}
-                      <td className="py-3 px-4 text-right font-mono font-semibold text-slate-700">
-                        {formatRupiah(item.product.price)}
-                      </td>
-                      {/* Quick Qty (+ / -) */}
-                      <td className="py-3 px-4 text-center">
-                        <div className="inline-flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
-                          <button
-                            type="button"
-                            onClick={() => handleDecrement(index)}
-                            title="Kurangi Qty (Hapus jika 0)"
-                            className="w-7 h-7 rounded-lg bg-white hover:bg-rose-50 hover:text-rose-600 active:scale-95 text-slate-700 font-black flex items-center justify-center transition border border-slate-200 cursor-pointer text-xs"
-                          >
-                            <Minus className="w-3.5 h-3.5" />
-                          </button>
-                          <span className="w-8 text-center font-mono font-extrabold text-slate-900 text-sm">
-                            {item.qty}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleIncrement(index)}
-                            title="Tambah Qty"
-                            className="w-7 h-7 rounded-lg bg-white hover:bg-emerald-50 hover:text-emerald-600 active:scale-95 text-slate-700 font-black flex items-center justify-center transition border border-slate-200 cursor-pointer text-xs"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                      {/* Subtotal */}
-                      <td className="py-3 px-4 text-right font-mono font-black text-emerald-700 text-sm">
-                        {formatRupiah(item.subtotal)}
-                      </td>
-                      {/* Action: Delete line item */}
-                      <td className="py-3 px-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleRemove(index)}
-                          title="Hapus baris ini"
-                          className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
+                    <CartRowItem
+                      key={`${item.product.code}-${index}`}
+                      item={item}
+                      index={index}
+                      onIncrement={handleIncrement}
+                      onDecrement={handleDecrement}
+                      onRemove={handleRemove}
+                    />
                   ))
                 )}
               </tbody>
@@ -882,81 +988,76 @@ export const BarcodePosCashier: React.FC = () => {
       {/* ============================================================== */}
       <div
         id="printable-receipt"
-        className="hidden bg-white text-black p-2 font-mono text-[11px] leading-tight max-w-[78mm] mx-auto"
+        className="hidden bg-white text-black p-3 font-mono text-[11px] leading-relaxed max-w-[76mm] mx-auto"
       >
-        <div className="text-center pb-2 border-b border-dashed border-black">
-          <h2 className="text-xs font-black uppercase tracking-wider">ALUNK STORE</h2>
-          <p className="text-[10px]">Toko Sembako & Kebutuhan Pokok</p>
-          <p className="text-[9px]">Jl. Raya Pasar No. 12, Jawa Timur</p>
-          <p className="text-[9px]">Telp/WA: 0812-3456-7890</p>
+        <div className="text-center pb-2 border-b-2 border-dashed border-black">
+          <h2 className="text-sm font-black uppercase tracking-wider">ALUNK STORE</h2>
+          <p className="text-[10px] font-bold">PUSAT SEMBAKO & KEBUTUHAN POKOK</p>
+          <p className="text-[9px] mt-0.5 leading-tight">Jl. Tambak Pamarayan, Kp. Kedung Sapi Masjid</p>
+          <p className="text-[9px] leading-tight">RT. 009 / RW 003, Pamarayan, Serang - Banten</p>
+          <p className="text-[9px] font-bold mt-0.5">Telp/WA: +62821-2584-5237</p>
         </div>
 
-        <div className="py-1.5 text-[10px] border-b border-dashed border-black space-y-0.5">
+        <div className="py-2 text-[10px] border-b border-dashed border-black space-y-0.5">
           <div className="flex justify-between">
-            <span>No: <strong>{lastInvoiceNumber}</strong></span>
+            <span>No. Struk:</span>
+            <span className="font-bold">{lastInvoiceNumber}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Waktu:</span>
             <span>{new Date().toLocaleDateString('id-ID')} {new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
           <div className="flex justify-between">
-            <span>Kasir: <strong>{currentUser?.name || 'Kasir Utama'}</strong></span>
-            <span>Cara Bayar: <strong>TUNAI</strong></span>
+            <span>Kasir:</span>
+            <span className="font-bold">{currentUser?.name || 'Kasir'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Metode:</span>
+            <span className="font-bold">TUNAI (CASH)</span>
           </div>
         </div>
 
-        <div className="py-2 border-b border-dashed border-black">
-          <table className="w-full text-[10px]">
-            <thead>
-              <tr className="border-b border-dashed border-black">
-                <th className="text-left pb-1 font-bold">Item</th>
-                <th className="text-center pb-1 font-bold">Qty</th>
-                <th className="text-right pb-1 font-bold">Harga</th>
-                <th className="text-right pb-1 font-bold">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cart.map((item, idx) => (
-                <React.Fragment key={idx}>
-                  <tr>
-                    <td colSpan={4} className="pt-1 font-bold">
-                      {item.product.name}
-                    </td>
-                  </tr>
-                  <tr className="pb-1 border-b border-dashed border-black/30">
-                    <td className="font-mono text-[9px] text-slate-600">{item.product.code}</td>
-                    <td className="text-center font-mono">{item.qty}</td>
-                    <td className="text-right font-mono">{item.product.price.toLocaleString('id-ID')}</td>
-                    <td className="text-right font-mono font-bold">
-                      {item.subtotal.toLocaleString('id-ID')}
-                    </td>
-                  </tr>
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table>
+        <div className="py-2 border-b border-dashed border-black space-y-1.5">
+          {cart.map((item, idx) => (
+            <div key={idx} className="space-y-0.5">
+              <div className="font-black text-[11px] uppercase tracking-tight text-black">
+                {item.product.name}
+              </div>
+              <div className="flex justify-between text-[10px] pl-1">
+                <span>
+                  {item.qty} x {item.product.price.toLocaleString('id-ID')}
+                </span>
+                <span className="font-black">
+                  {item.subtotal.toLocaleString('id-ID')}
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
 
-        <div className="py-1.5 text-[10px] space-y-0.5 border-b border-dashed border-black">
+        <div className="py-2 text-[10px] space-y-1 border-b-2 border-dashed border-black">
           <div className="flex justify-between">
             <span>Total Item:</span>
             <span className="font-bold">{totalQty} pcs ({cart.length} jenis)</span>
           </div>
-          <div className="flex justify-between font-bold text-xs pt-0.5">
-            <span>TOTAL:</span>
+          <div className="flex justify-between text-xs font-black pt-1 border-t border-dotted border-black">
+            <span>TOTAL BELANJA:</span>
             <span>{formatRupiah(grandTotal)}</span>
           </div>
-          <div className="flex justify-between pt-0.5">
-            <span>TUNAI:</span>
+          <div className="flex justify-between font-bold">
+            <span>BAYAR TUNAI:</span>
             <span>{formatRupiah(cashPaid || grandTotal)}</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between font-bold">
             <span>KEMBALIAN:</span>
             <span>{formatRupiah(changeAmount)}</span>
           </div>
         </div>
 
         <div className="pt-2 text-center text-[9px] space-y-0.5">
-          <p className="font-bold uppercase tracking-wider">*** TERIMA KASIH ***</p>
+          <p className="font-black uppercase tracking-wider">*** TERIMA KASIH ATAS KUNJUNGAN ANDA ***</p>
           <p>Barang yang sudah dibeli tidak dapat ditukar/dikembalikan</p>
-          <p className="font-mono text-[8px] pt-1">ALUNK-POS-BARCODE-SYSTEM</p>
+          <p className="font-bold text-[8px] pt-1 tracking-widest">ALUNK STORE POS SYSTEM</p>
         </div>
       </div>
 
@@ -965,7 +1066,7 @@ export const BarcodePosCashier: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-slate-900 text-sm">Preview Format Struk Thermal</h3>
+              <h3 className="font-extrabold text-slate-900 text-sm">Preview Format Struk Thermal 58mm/80mm</h3>
               <button
                 type="button"
                 onClick={() => setShowPreviewModal(false)}
@@ -976,58 +1077,73 @@ export const BarcodePosCashier: React.FC = () => {
             </div>
 
             <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200">
-              <div className="bg-white p-3 border border-slate-300 rounded shadow-xs font-mono text-[11px] leading-tight text-black space-y-2">
-                <div className="text-center pb-2 border-b border-dashed border-slate-400">
-                  <h4 className="font-bold uppercase">ALUNK STORE</h4>
-                  <p className="text-[10px] text-slate-600">Toko Sembako & Kebutuhan Pokok</p>
-                  <p className="text-[9px] text-slate-500">Telp/WA: 0812-3456-7890</p>
+              <div className="bg-white p-3 border border-slate-300 rounded shadow-xs font-mono text-[11px] leading-relaxed text-black space-y-2">
+                <div className="text-center pb-2 border-b-2 border-dashed border-slate-400">
+                  <h4 className="font-black uppercase">ALUNK STORE</h4>
+                  <p className="text-[10px] font-bold text-slate-700">PUSAT SEMBAKO & KEBUTUHAN POKOK</p>
+                  <p className="text-[9px] text-slate-600 leading-tight">Jl. Tambak Pamarayan, Kp. Kedung Sapi Masjid</p>
+                  <p className="text-[9px] text-slate-600 leading-tight">RT. 009 / RW 003, Pamarayan, Serang - Banten</p>
+                  <p className="text-[9px] font-bold text-slate-800">Telp/WA: +62821-2584-5237</p>
                 </div>
 
                 <div className="py-1 text-[10px] border-b border-dashed border-slate-400 space-y-0.5">
                   <div className="flex justify-between">
-                    <span>No: {lastInvoiceNumber}</span>
+                    <span>No. Struk:</span>
+                    <span className="font-bold">{lastInvoiceNumber}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Waktu:</span>
                     <span>{new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Kasir: {currentUser?.name || 'Kasir'}</span>
-                    <span>TUNAI</span>
+                    <span>Kasir:</span>
+                    <span className="font-bold">{currentUser?.name || 'Kasir'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Metode:</span>
+                    <span className="font-bold">TUNAI (CASH)</span>
                   </div>
                 </div>
 
-                <div className="py-1 border-b border-dashed border-slate-400 space-y-1">
+                <div className="py-1 border-b border-dashed border-slate-400 space-y-1.5">
                   {cart.length === 0 ? (
                     <p className="text-center text-slate-400 italic py-2">Tidak ada item di keranjang</p>
                   ) : (
                     cart.map((item, i) => (
                       <div key={i} className="space-y-0.5">
-                        <div className="font-bold text-slate-900">{item.product.name}</div>
-                        <div className="flex justify-between text-slate-600 text-[10px]">
+                        <div className="font-black text-slate-900 text-[11px] uppercase">{item.product.name}</div>
+                        <div className="flex justify-between text-slate-700 text-[10px] pl-1">
                           <span>{item.qty} x {item.product.price.toLocaleString('id-ID')}</span>
-                          <span className="font-bold text-slate-900">{item.subtotal.toLocaleString('id-ID')}</span>
+                          <span className="font-black text-slate-900">{item.subtotal.toLocaleString('id-ID')}</span>
                         </div>
                       </div>
                     ))
                   )}
                 </div>
 
-                <div className="pt-1 text-[10px] space-y-0.5 border-b border-dashed border-slate-400 pb-2">
-                  <div className="flex justify-between font-bold text-xs">
-                    <span>TOTAL:</span>
+                <div className="pt-1 text-[10px] space-y-1 border-b-2 border-dashed border-slate-400 pb-2">
+                  <div className="flex justify-between">
+                    <span>Total Item:</span>
+                    <span className="font-bold">{totalQty} pcs ({cart.length} jenis)</span>
+                  </div>
+                  <div className="flex justify-between font-black text-xs pt-0.5 border-t border-dotted border-slate-400">
+                    <span>TOTAL BELANJA:</span>
                     <span>{formatRupiah(grandTotal)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span>TUNAI:</span>
+                  <div className="flex justify-between font-bold">
+                    <span>BAYAR TUNAI:</span>
                     <span>{formatRupiah(cashPaid || grandTotal)}</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between font-bold">
                     <span>KEMBALIAN:</span>
                     <span>{formatRupiah(changeAmount)}</span>
                   </div>
                 </div>
 
-                <div className="text-center text-[9px] text-slate-500 pt-1">
-                  <p>*** TERIMA KASIH ***</p>
+                <div className="text-center text-[9px] text-slate-600 pt-1 space-y-0.5">
+                  <p className="font-black uppercase">*** TERIMA KASIH ATAS KUNJUNGAN ANDA ***</p>
                   <p>Barang yang sudah dibeli tidak dapat ditukar/dikembalikan</p>
+                  <p className="font-bold text-[8px] pt-0.5 tracking-widest text-slate-500">ALUNK STORE POS SYSTEM</p>
                 </div>
               </div>
             </div>

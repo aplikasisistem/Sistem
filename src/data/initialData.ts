@@ -71,3 +71,5 @@ export const INITIAL_TRANSACTIONS: Transaction[] = [];
 export const INITIAL_EXPENSES: OperationalExpense[] = [];
 
 export const INITIAL_CURRENT_SHIFT: CashierShift | null = null;
+
+export const INITIAL_SHIFT_HISTORY: CashierShift[] = [];

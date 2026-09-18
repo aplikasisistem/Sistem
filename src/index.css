@@ -26,20 +26,51 @@
 }
 
 @media print {
+  @page {
+    margin: 0;
+    size: auto;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
   body * {
     visibility: hidden;
   }
-  #printable-receipt, #printable-receipt * {
-    visibility: visible;
+
+  #printable-receipt, #printable-receipt *,
+  #printable-shift-reconciliation, #printable-shift-reconciliation * {
+    visibility: visible !important;
   }
-  #printable-receipt {
+
+  #printable-receipt,
+  #printable-shift-reconciliation {
+    display: block !important;
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
-    margin: 0;
-    padding: 10px;
-    background: white !important;
-    color: black !important;
+    max-width: 76mm; /* Optimal for 80mm & 58mm thermal paper roll */
+    margin: 0 auto;
+    padding: 4mm 2mm;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: 'JetBrains Mono', 'Courier New', Courier, monospace !important;
+    font-size: 11px !important;
+    line-height: 1.35 !important;
+    font-weight: 600 !important;
+  }
+
+  /* Ensure dotted / dashed borders render sharply in print */
+  #printable-receipt *,
+  #printable-shift-reconciliation * {
+    color: #000000 !important;
+    border-color: #000000 !important;
   }
 }

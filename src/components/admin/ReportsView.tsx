@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { formatRupiah, formatDateIndo, formatDateTimeIndo } from '../../utils/formatters';
 import { generateCashFlowPDF, generateProfitLossPDF, generateInventoryPDF } from '../../utils/pdfExport';
-import { FileText, Download, Calendar, DollarSign, TrendingUp, Layers, CheckCircle2, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { FileText, Download, Calendar, DollarSign, TrendingUp, Layers, CheckCircle2, ArrowDownCircle, ArrowUpCircle, Scale, Wallet } from 'lucide-react';
 
 export const ReportsView: React.FC = () => {
   const {
@@ -14,7 +14,7 @@ export const ReportsView: React.FC = () => {
     currentShift,
   } = useStore();
 
-  const [activeReportTab, setActiveReportTab] = useState<'cashflow' | 'pl' | 'inventory'>('cashflow');
+  const [activeReportTab, setActiveReportTab] = useState<'cashflow' | 'pl' | 'inventory' | 'shifts'>('cashflow');
   const [reportPeriod, setReportPeriod] = useState<'today' | 'month' | 'all'>('month');
 
   // Calculations for reports
@@ -172,6 +172,19 @@ export const ReportsView: React.FC = () => {
           }`}
         >
           Laporan Nilai Aset Stok (Inventaris)
+        </button>
+
+        <button
+          type="button"
+          id="btn-report-tab-shifts"
+          onClick={() => setActiveReportTab('shifts')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+            activeReportTab === 'shifts'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          Laporan Rekonsiliasi Shift Kasir
         </button>
       </div>
 
@@ -394,6 +407,159 @@ export const ReportsView: React.FC = () => {
                     <td className="py-3 px-4 text-right font-mono text-emerald-700">{formatRupiah(p.retailPrice)}</td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: SHIFT RECONCILIATION REPORT */}
+      {activeReportTab === 'shifts' && (
+        <div className="space-y-4">
+          {/* Shift Report Summary Banner */}
+          <div className="flex justify-between items-center bg-emerald-50 border border-emerald-200 p-4 rounded-2xl">
+            <div className="flex items-center gap-2 text-emerald-800">
+              <Scale className="w-5 h-5 text-emerald-600" />
+              <div>
+                <h4 className="font-bold text-sm">Laporan Rekonsiliasi & Balancing Kasir</h4>
+                <p className="text-xs text-emerald-700">Audit modal awal, pemasukan kas tunai, pengeluaran kas, dan selisih fisik laci kasir</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              id="btn-print-shifts-report"
+              onClick={() => window.print()}
+              className="py-2 px-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer active:scale-98"
+            >
+              <Download className="w-4 h-4" />
+              <span>Cetak / Print Laporan</span>
+            </button>
+          </div>
+
+          {/* 4 Summary Cards for Shifts */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                Total Estimasi Modal Awal
+              </span>
+              <span className="text-xl font-black font-mono text-slate-800 mt-1 block">
+                {formatRupiah(shiftHistory.reduce((sum, s) => sum + (s.startingCash || 0), 0) + (currentShift?.startingCash || 0))}
+              </span>
+            </div>
+
+            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200">
+              <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider block">
+                Total Pemasukan Kas (Intake)
+              </span>
+              <span className="text-xl font-black font-mono text-emerald-900 mt-1 block">
+                +{formatRupiah(shiftHistory.reduce((sum, s) => sum + (s.totalCashIntake ?? s.totalCashSales ?? 0), 0) + (currentShift?.totalCashIntake ?? currentShift?.totalCashSales ?? 0))}
+              </span>
+            </div>
+
+            <div className="p-4 bg-rose-50 rounded-2xl border border-rose-200">
+              <span className="text-xs font-bold text-rose-800 uppercase tracking-wider block">
+                Total Pengeluaran Kas Shift
+              </span>
+              <span className="text-xl font-black font-mono text-rose-700 mt-1 block">
+                -{formatRupiah(shiftHistory.reduce((sum, s) => sum + (s.totalExpensesPaid || 0), 0) + (currentShift?.totalExpensesPaid || 0))}
+              </span>
+            </div>
+
+            <div className="p-4 bg-slate-900 text-white rounded-2xl border border-slate-800">
+              <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider block">
+                Total Saldo Kas Seharusnya
+              </span>
+              <span className="text-xl font-black font-mono text-emerald-400 mt-1 block">
+                {formatRupiah(
+                  shiftHistory.reduce((sum, s) => {
+                    const intake = s.totalCashIntake ?? s.totalCashSales ?? 0;
+                    const exp = s.totalExpensesPaid ?? 0;
+                    return sum + (s.startingCash + intake - exp);
+                  }, 0) + (currentShift ? ((currentShift.startingCash || 0) + (currentShift.totalCashIntake ?? currentShift.totalCashSales ?? 0) - (currentShift.totalExpensesPaid || 0)) : 0)
+                )}
+              </span>
+            </div>
+          </div>
+
+          {/* Shifts Audit Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-slate-700">
+              <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4">Kasir & Sesi</th>
+                  <th className="py-3 px-4 text-right">Modal Awal</th>
+                  <th className="py-3 px-4 text-right">Kas Masuk (Sales)</th>
+                  <th className="py-3 px-4 text-right">Beban Keluar</th>
+                  <th className="py-3 px-4 text-right">Saldo Seharusnya</th>
+                  <th className="py-3 px-4 text-right">Kas Fisik</th>
+                  <th className="py-3 px-4 text-right">Selisih</th>
+                  <th className="py-3 px-4 text-center">Status Laci</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {/* Active shift row if open */}
+                {currentShift && (
+                  <tr className="bg-emerald-50/50 hover:bg-emerald-50">
+                    <td className="py-3 px-4">
+                      <div className="font-bold text-emerald-900 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>{currentShift.cashierName} (Sedang Berjalan)</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500">Mulai: {new Date(currentShift.startTime).toLocaleTimeString('id-ID')}</div>
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono font-medium">{formatRupiah(currentShift.startingCash)}</td>
+                    <td className="py-3 px-4 text-right font-mono font-medium text-emerald-700">+{formatRupiah(currentShift.totalCashIntake ?? currentShift.totalCashSales ?? 0)}</td>
+                    <td className="py-3 px-4 text-right font-mono font-medium text-rose-600">-{formatRupiah(currentShift.totalExpensesPaid || 0)}</td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">{formatRupiah(currentShift.expectedDrawerCash)}</td>
+                    <td className="py-3 px-4 text-right font-mono text-slate-400">Belum ditutup</td>
+                    <td className="py-3 px-4 text-right font-mono text-slate-400">-</td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                        Shift Aktif
+                      </span>
+                    </td>
+                  </tr>
+                )}
+
+                {shiftHistory.map(s => {
+                  const intake = s.totalCashIntake ?? s.totalCashSales ?? 0;
+                  const exp = s.totalExpensesPaid ?? 0;
+                  const expected = s.startingCash + intake - exp;
+                  const actual = s.actualDrawerCash ?? expected;
+                  const disc = s.discrepancy ?? (actual - expected);
+
+                  return (
+                    <tr key={s.id} className="hover:bg-slate-50/70">
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-slate-900">{s.cashierName}</div>
+                        <div className="text-[10px] text-slate-500">
+                          {s.endTime ? new Date(s.endTime).toLocaleString('id-ID') : 'Selesai'}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono">{formatRupiah(s.startingCash)}</td>
+                      <td className="py-3 px-4 text-right font-mono text-emerald-700">+{formatRupiah(intake)}</td>
+                      <td className="py-3 px-4 text-right font-mono text-rose-600">-{formatRupiah(exp)}</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">{formatRupiah(expected)}</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">{formatRupiah(actual)}</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold">
+                        {disc === 0 ? (
+                          <span className="text-emerald-700">Pas (Rp 0)</span>
+                        ) : disc > 0 ? (
+                          <span className="text-blue-700">+{formatRupiah(disc)}</span>
+                        ) : (
+                          <span className="text-rose-600">{formatRupiah(disc)}</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          disc === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          {disc === 0 ? 'Seimbang' : 'Ada Selisih'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

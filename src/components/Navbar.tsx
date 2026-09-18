@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
 import { 
   Store, 
@@ -16,7 +16,10 @@ import {
   FileText,
   Cloud,
   CloudOff,
-  Barcode
+  Barcode,
+  ChevronLeft,
+  ChevronRight,
+  Scale
 } from 'lucide-react';
 import { formatRupiah } from '../utils/formatters';
 
@@ -32,6 +35,28 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenShiftModal = () => {}
 }) => {
   const { currentUser, logout, currentShift, isCloudConnected } = useStore();
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollTabsLeft = () => {
+    if (tabsContainerRef.current) {
+      tabsContainerRef.current.scrollBy({ left: -260, behavior: 'smooth' });
+    }
+  };
+
+  const scrollTabsRight = () => {
+    if (tabsContainerRef.current) {
+      tabsContainerRef.current.scrollBy({ left: 260, behavior: 'smooth' });
+    }
+  };
+
+  // Automatically scroll active tab into view
+  useEffect(() => {
+    if (!tabsContainerRef.current || !currentTab) return;
+    const activeBtn = tabsContainerRef.current.querySelector(`#tab-${currentTab}`) as HTMLElement;
+    if (activeBtn) {
+      activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }, [currentTab]);
 
   if (!currentUser) return null;
 
@@ -152,190 +177,239 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs based on Role */}
-        <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar pb-2 pt-1 border-t border-slate-100">
-          {/* Kasir Tabs */}
-          {(role === 'kasir' || role === 'admin') && (
-            <>
+        {/* Navigation Tabs based on Role with Shift/Scroll Buttons for Laptop/PC */}
+        <div className="relative flex items-center border-t border-slate-100 pt-1 pb-2">
+          {/* Tombol Pergeseran Kiri (Left Shift Button for Laptop/PC) */}
+          <button
+            type="button"
+            id="btn-shift-tabs-left"
+            onClick={scrollTabsLeft}
+            className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 border border-slate-200 transition-all shrink-0 mr-1.5 shadow-xs cursor-pointer active:scale-95 z-10 text-xs font-bold"
+            title="Geser menu tab ke kiri"
+            aria-label="Geser tab ke kiri"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            <span className="hidden xl:inline text-[11px]">Geser</span>
+          </button>
+
+          {/* Scrollable Tabs Bar */}
+          <div
+            ref={tabsContainerRef}
+            className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-1 py-0.5"
+          >
+            {/* Kasir Barcode Cepat (Accessible for Kasir, Gudang, Warehouse Admin, and Admin) */}
+            {(role === 'kasir' || role === 'gudang' || role === 'warehouse_admin' || role === 'admin') && (
               <button
                 type="button"
                 id="tab-barcode-pos"
                 onClick={() => setCurrentTab('barcode-pos')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
                   currentTab === 'barcode-pos'
                     ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-700/20'
-                    : 'text-slate-600 hover:bg-slate-100'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
                 <Barcode className="w-4 h-4" />
                 <span>Kasir Barcode Cepat</span>
               </button>
+            )}
 
-              <button
-                type="button"
-                id="tab-pos"
-                onClick={() => setCurrentTab('pos')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  currentTab === 'pos'
-                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-700/20'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <ShoppingBag className="w-4 h-4" />
-                <span>Kasir Manual (POS)</span>
-              </button>
+            {/* Kasir Tabs (POS Manual, History, Shift Reconciliation, Kasbon) */}
+            {(role === 'kasir' || role === 'admin') && (
+              <>
+                <button
+                  type="button"
+                  id="tab-pos"
+                  onClick={() => setCurrentTab('pos')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                    currentTab === 'pos'
+                      ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-700/20'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>Kasir Manual (POS)</span>
+                </button>
 
-              <button
-                type="button"
-                id="tab-history"
-                onClick={() => setCurrentTab('history')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  currentTab === 'history'
-                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-700/20'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <Clock className="w-4 h-4" />
-                <span>Riwayat Hari Ini</span>
-              </button>
+                <button
+                  type="button"
+                  id="tab-history"
+                  onClick={() => setCurrentTab('history')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                    currentTab === 'history'
+                      ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-700/20'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <Clock className="w-4 h-4" />
+                  <span>Riwayat Hari Ini</span>
+                </button>
 
-              <button
-                type="button"
-                id="tab-kasbon"
-                onClick={() => setCurrentTab('kasbon')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  currentTab === 'kasbon'
-                    ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-700/20'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <CreditCard className="w-4 h-4" />
-                <span>Kasbon / Hutang Pelanggan</span>
-              </button>
-            </>
-          )}
+                <button
+                  type="button"
+                  id="tab-shift-reconciliation"
+                  onClick={() => setCurrentTab('shift-reconciliation')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                    currentTab === 'shift-reconciliation'
+                      ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-700/20'
+                      : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80'
+                  }`}
+                >
+                  <Scale className="w-4 h-4" />
+                  <span>Rekonsiliasi Shift Kasir</span>
+                </button>
 
-          {/* Gudang Tabs */}
-          {(role === 'gudang' || role === 'warehouse_admin' || role === 'admin') && (
-            <>
-              <button
-                type="button"
-                id="tab-auto-stock-scanner"
-                onClick={() => setCurrentTab('auto-stock-scanner')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  currentTab === 'auto-stock-scanner'
-                    ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md shadow-teal-700/25'
-                    : 'text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200'
-                }`}
-              >
-                <Barcode className="w-4 h-4" />
-                <span>Input Stok Otomatis (Scan Gudang)</span>
-              </button>
+                <button
+                  type="button"
+                  id="tab-kasbon"
+                  onClick={() => setCurrentTab('kasbon')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                    currentTab === 'kasbon'
+                      ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-700/20'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <CreditCard className="w-4 h-4" />
+                  <span>Kasbon / Hutang Pelanggan</span>
+                </button>
+              </>
+            )}
 
-              <button
-                type="button"
-                id="tab-gudang"
-                onClick={() => setCurrentTab('gudang')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  currentTab === 'gudang'
-                    ? 'bg-teal-700 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <Package className="w-4 h-4" />
-                <span>Stok & Inventaris Sembako</span>
-              </button>
+            {/* Gudang Tabs */}
+            {(role === 'gudang' || role === 'warehouse_admin' || role === 'admin') && (
+              <>
+                <button
+                  type="button"
+                  id="tab-auto-stock-scanner"
+                  onClick={() => setCurrentTab('auto-stock-scanner')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                    currentTab === 'auto-stock-scanner'
+                      ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md shadow-teal-700/25'
+                      : 'text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200'
+                  }`}
+                >
+                  <Barcode className="w-4 h-4" />
+                  <span>Input Stok Otomatis (Scan Gudang)</span>
+                </button>
 
-              <button
-                type="button"
-                id="tab-supplier"
-                onClick={() => setCurrentTab('supplier')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  currentTab === 'supplier'
-                    ? 'bg-teal-700 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <DollarSign className="w-4 h-4" />
-                <span>Penerimaan & Hutang Supplier</span>
-              </button>
-            </>
-          )}
+                <button
+                  type="button"
+                  id="tab-gudang"
+                  onClick={() => setCurrentTab('gudang')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                    currentTab === 'gudang'
+                      ? 'bg-teal-700 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <Package className="w-4 h-4" />
+                  <span>Stok & Inventaris Sembako</span>
+                </button>
 
-          {/* Admin Exclusive Tabs */}
-          {role === 'admin' && (
-            <>
-              <button
-                type="button"
-                id="tab-overview"
-                onClick={() => setCurrentTab('overview')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  currentTab === 'overview'
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <BarChart3 className="w-4 h-4" />
-                <span>Ringkasan Keuangan</span>
-              </button>
+                <button
+                  type="button"
+                  id="tab-supplier"
+                  onClick={() => setCurrentTab('supplier')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                    currentTab === 'supplier'
+                      ? 'bg-teal-700 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <DollarSign className="w-4 h-4" />
+                  <span>Penerimaan & Hutang Supplier</span>
+                </button>
+              </>
+            )}
 
-              <button
-                type="button"
-                id="tab-master-price"
-                onClick={() => setCurrentTab('master-price')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  currentTab === 'master-price'
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <Tag className="w-4 h-4" />
-                <span>Master Harga (HPP/Grosir)</span>
-              </button>
+            {/* Admin Exclusive Tabs */}
+            {role === 'admin' && (
+              <>
+                <button
+                  type="button"
+                  id="tab-overview"
+                  onClick={() => setCurrentTab('overview')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                    currentTab === 'overview'
+                      ? 'bg-amber-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  <span>Ringkasan Keuangan</span>
+                </button>
 
-              <button
-                type="button"
-                id="tab-expenses"
-                onClick={() => setCurrentTab('expenses')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  currentTab === 'expenses'
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <DollarSign className="w-4 h-4" />
-                <span>Arus Kas Non-Stok</span>
-              </button>
+                <button
+                  type="button"
+                  id="tab-master-price"
+                  onClick={() => setCurrentTab('master-price')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                    currentTab === 'master-price'
+                      ? 'bg-amber-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <Tag className="w-4 h-4" />
+                  <span>Master Harga (HPP/Grosir)</span>
+                </button>
 
-              <button
-                type="button"
-                id="tab-reports"
-                onClick={() => setCurrentTab('reports')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  currentTab === 'reports'
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <FileText className="w-4 h-4" />
-                <span>Laporan & PDF</span>
-              </button>
+                <button
+                  type="button"
+                  id="tab-expenses"
+                  onClick={() => setCurrentTab('expenses')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                    currentTab === 'expenses'
+                      ? 'bg-amber-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <DollarSign className="w-4 h-4" />
+                  <span>Arus Kas Non-Stok</span>
+                </button>
 
-              <button
-                type="button"
-                id="tab-users"
-                onClick={() => setCurrentTab('users')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                  currentTab === 'users'
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <Users className="w-4 h-4" />
-                <span>Kelola Akun</span>
-              </button>
-            </>
-          )}
+                <button
+                  type="button"
+                  id="tab-reports"
+                  onClick={() => setCurrentTab('reports')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                    currentTab === 'reports'
+                      ? 'bg-amber-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Laporan & PDF</span>
+                </button>
+
+                <button
+                  type="button"
+                  id="tab-users"
+                  onClick={() => setCurrentTab('users')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                    currentTab === 'users'
+                      ? 'bg-amber-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  <span>Kelola Akun</span>
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Tombol Pergeseran Kanan (Right Shift Button for Laptop/PC) */}
+          <button
+            type="button"
+            id="btn-shift-tabs-right"
+            onClick={scrollTabsRight}
+            className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 border border-slate-200 transition-all shrink-0 ml-1.5 shadow-xs cursor-pointer active:scale-95 z-10 text-xs font-bold"
+            title="Geser menu tab ke kanan"
+            aria-label="Geser tab ke kanan"
+          >
+            <span className="hidden xl:inline text-[11px]">Geser</span>
+            <ChevronRight className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </header>

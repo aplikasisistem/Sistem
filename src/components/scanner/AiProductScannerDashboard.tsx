@@ -5,7 +5,6 @@ import { formatRupiah, formatThousand, parseThousand } from '../../utils/formatt
 import { Product, Transaction } from '../../types';
 import {
   ShoppingBag,
-  PackagePlus,
   TrendingUp,
   AlertCircle,
   CheckCircle2,
@@ -23,14 +22,13 @@ import {
   Calendar
 } from 'lucide-react';
 
-type DashboardTab = 'kasir' | 'tambah-stok' | 'laporan';
+type DashboardTab = 'kasir' | 'laporan';
 
 export const AiProductScannerDashboard: React.FC = () => {
   const {
     products,
     transactions,
     expenses,
-    addOrIncreaseStock,
     recordQuickSale,
     addExpense,
     deleteExpense,
@@ -54,28 +52,7 @@ export const AiProductScannerDashboard: React.FC = () => {
   const [lastSaleReceipt, setLastSaleReceipt] = useState<Transaction | null>(null);
 
   // ----------------------------------------------------
-  // Tab 2: TAMBAH STOK STATE (Stok Masuk)
-  // ----------------------------------------------------
-  const [stockForm, setStockForm] = useState<{
-    name: string;
-    retailPrice: string;
-    qty: number;
-    category: string;
-    baseUnit: string;
-    isExisting: boolean;
-    existingStock: number;
-  }>({
-    name: '',
-    retailPrice: '',
-    qty: 1,
-    category: 'Sembako',
-    baseUnit: 'pcs',
-    isExisting: false,
-    existingStock: 0,
-  });
-
-  // ----------------------------------------------------
-  // Tab 3: PENGELUARAN OPERASIONAL STATE
+  // Tab 2: PENGELUARAN OPERASIONAL STATE
   // ----------------------------------------------------
   const [expenseForm, setExpenseForm] = useState<{
     category: string;
@@ -244,7 +221,7 @@ export const AiProductScannerDashboard: React.FC = () => {
         setSuccessMessage(`Berhasil mendeteksi: "${matched.name}". Sisa stok: ${matched.stock} ${matched.baseUnit}`);
       } else if (recognizedName) {
         setErrorMessage(
-          `AI mendeteksi "${recognizedName}", namun barang belum terdaftar di stok toko. Silakan tambahkan stok terlebih dahulu di tab [Tambah Stok] atau pilih barang manual di bawah.`
+          `AI mendeteksi "${recognizedName}", namun barang belum terdaftar di stok toko. Silakan daftarkan di menu Gudang atau pilih barang manual di bawah.`
         );
       } else {
         if (products.length > 0) {
@@ -253,7 +230,7 @@ export const AiProductScannerDashboard: React.FC = () => {
           );
         } else {
           setErrorMessage(
-            '📸 Foto berhasil diambil, namun belum ada stok barang di toko. Silakan tambahkan stok barang terlebih dahulu di tab [Tambah Stok].'
+            '📸 Foto berhasil diambil, namun belum ada stok barang di toko. Silakan daftarkan barang terlebih dahulu di menu Gudang.'
           );
         }
       }
@@ -292,106 +269,6 @@ export const AiProductScannerDashboard: React.FC = () => {
       setSaleQty(1);
     } catch (err: any) {
       setErrorMessage(`Gagal mencatat transaksi: ${err.message || 'Coba lagi'}`);
-    }
-  };
-
-  // ----------------------------------------------------
-  // ACTION: SCAN PRODUK MASUK (Tab Tambah Stok)
-  // ----------------------------------------------------
-  const handleScanProdukMasuk = async (base64Image: string) => {
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
-    try {
-      const aiResult = await callGeminiRecognizeProduct(base64Image);
-      const recognizedName = aiResult.nama_barang || '';
-      const estimatedPrice = aiResult.estimasi_harga_jual || 0;
-      const category = aiResult.kategori || 'Sembako';
-      const unit = aiResult.satuan || 'pcs';
-
-      // Check if product already exists in store
-      const existing = recognizedName
-        ? products.find(p => p.name.trim().toLowerCase() === recognizedName.trim().toLowerCase())
-        : undefined;
-
-      setStockForm({
-        name: recognizedName,
-        retailPrice: existing ? formatThousand(existing.retailPrice) : (estimatedPrice > 0 ? formatThousand(estimatedPrice) : ''),
-        qty: 1,
-        category: existing?.category || category,
-        baseUnit: existing?.baseUnit || unit,
-        isExisting: Boolean(existing),
-        existingStock: existing ? existing.stock : 0,
-      });
-
-      if (existing) {
-        setSuccessMessage(
-          `Barang "${existing.name}" sudah terdaftar di toko dengan stok ${existing.stock} ${existing.baseUnit}. Stok akan otomatis bertambah!`
-        );
-      } else if (recognizedName) {
-        setSuccessMessage(
-          `AI mendeteksi produk baru: "${recognizedName}". Silakan periksa harga jual satuan dan jumlah stok masuk.`
-        );
-      } else {
-        setSuccessMessage(
-          `📸 Foto berhasil diambil! Silakan lengkapi nama barang, harga jual satuan, dan jumlah stok masuk pada formulir di bawah.`
-        );
-      }
-    } catch (err: any) {
-      setErrorMessage(`Gagal memproses gambar: ${err.message || 'Periksa koneksi internet'}`);
-    }
-  };
-
-  // Save Stock In to Database
-  const handleSaveStockIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
-    if (!stockForm.name.trim()) {
-      setErrorMessage('Nama barang tidak boleh kosong.');
-      return;
-    }
-
-    const priceNum = parseThousand(stockForm.retailPrice);
-    if (priceNum <= 0) {
-      setErrorMessage('Harga jual satuan harus lebih dari 0.');
-      return;
-    }
-
-    const qtyNum = Number(stockForm.qty);
-    if (qtyNum <= 0) {
-      setErrorMessage('Jumlah masuk (Qty) minimal 1.');
-      return;
-    }
-
-    try {
-      const result = await addOrIncreaseStock({
-        name: stockForm.name,
-        retailPrice: priceNum,
-        qty: qtyNum,
-        category: stockForm.category,
-        baseUnit: stockForm.baseUnit,
-      });
-
-      setSuccessMessage(
-        result.isNew
-          ? `Produk baru "${result.product.name}" berhasil disimpan ke database! Stok: ${result.product.stock} ${result.product.baseUnit}.`
-          : `Stok "${result.product.name}" berhasil ditambahkan +${qtyNum}! Total stok sekarang: ${result.product.stock} ${result.product.baseUnit}.`
-      );
-
-      // Reset form
-      setStockForm({
-        name: '',
-        retailPrice: '',
-        qty: 1,
-        category: 'Sembako',
-        baseUnit: 'pcs',
-        isExisting: false,
-        existingStock: 0,
-      });
-    } catch (err: any) {
-      setErrorMessage(`Gagal menyimpan ke database: ${err.message || 'Coba lagi'}`);
     }
   };
 
@@ -495,8 +372,8 @@ export const AiProductScannerDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Navigation Switch Tabs: [Kasir / Jual], [Tambah Stok], [Laporan Harian] */}
-      <div className="bg-white p-1.5 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between gap-1 overflow-x-auto">
+      {/* Navigation Switch Tabs: [Kasir / Jual], [Laporan Harian] */}
+      <div className="bg-white p-1.5 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-2 gap-2">
         <button
           type="button"
           id="tab-btn-kasir-jual"
@@ -505,7 +382,7 @@ export const AiProductScannerDashboard: React.FC = () => {
             setErrorMessage(null);
             setSuccessMessage(null);
           }}
-          className={`flex-1 min-w-[130px] py-2.5 sm:py-3 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+          className={`w-full py-2.5 sm:py-3 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
             activeTab === 'kasir'
               ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
               : 'text-slate-600 hover:bg-slate-100'
@@ -517,31 +394,13 @@ export const AiProductScannerDashboard: React.FC = () => {
 
         <button
           type="button"
-          id="tab-btn-tambah-stok"
-          onClick={() => {
-            setActiveTab('tambah-stok');
-            setErrorMessage(null);
-            setSuccessMessage(null);
-          }}
-          className={`flex-1 min-w-[130px] py-2.5 sm:py-3 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
-            activeTab === 'tambah-stok'
-              ? 'bg-teal-700 text-white shadow-md shadow-teal-700/20'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <PackagePlus className="w-4 h-4 sm:w-5 sm:h-5" />
-          <span>[Tambah Stok]</span>
-        </button>
-
-        <button
-          type="button"
           id="tab-btn-laporan-harian"
           onClick={() => {
             setActiveTab('laporan');
             setErrorMessage(null);
             setSuccessMessage(null);
           }}
-          className={`flex-1 min-w-[130px] py-2.5 sm:py-3 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+          className={`w-full py-2.5 sm:py-3 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
             activeTab === 'laporan'
               ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
               : 'text-slate-600 hover:bg-slate-100'
@@ -821,172 +680,7 @@ export const AiProductScannerDashboard: React.FC = () => {
       )}
 
       {/* ---------------------------------------------------- */}
-      {/* TAB 2: TAMBAH STOK (STOK MASUK) */}
-      {/* ---------------------------------------------------- */}
-      {activeTab === 'tambah-stok' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left: Camera Scanner for Stock In */}
-          <div className="lg:col-span-6 space-y-4">
-            <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-xs">
-              <div className="mb-3">
-                <h2 className="font-bold text-slate-900 text-sm sm:text-base flex items-center gap-2">
-                  <PackagePlus className="w-5 h-5 text-teal-700" />
-                  <span>Scan Produk Masuk (Kamera HP)</span>
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Arahkan kamera ke barang sembako baru/lama, lalu klik tombol "Scan Produk Masuk".
-                </p>
-              </div>
-
-              <CameraScanner
-                buttonLabel="Scan Produk Masuk"
-                onCapture={handleScanProdukMasuk}
-                isProcessing={isAiProcessing}
-                instructionText="Arahkan kamera ke kemasan/merk produk yang baru masuk"
-              />
-            </div>
-          </div>
-
-          {/* Right: Form Input Barang (Stok Masuk) */}
-          <div className="lg:col-span-6">
-            <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
-                <h3 className="font-bold text-slate-900 text-sm sm:text-base flex items-center gap-2">
-                  <Tag className="w-4 h-4 text-teal-600" />
-                  <span>Form Input Barang Masuk</span>
-                </h3>
-                {stockForm.isExisting && (
-                  <span className="text-[10px] px-2.5 py-0.5 bg-amber-100 text-amber-900 font-bold rounded-full">
-                    Stok Lama: {stockForm.existingStock} {stockForm.baseUnit}
-                  </span>
-                )}
-              </div>
-
-              <form onSubmit={handleSaveStockIn} className="space-y-4">
-                {/* Field: Nama Barang */}
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-700">
-                    Nama Barang <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={stockForm.name}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const match = products.find(p => p.name.toLowerCase() === val.trim().toLowerCase());
-                      setStockForm(prev => ({
-                        ...prev,
-                        name: val,
-                        isExisting: Boolean(match),
-                        existingStock: match ? match.stock : 0,
-                        retailPrice: match ? formatThousand(match.retailPrice) : prev.retailPrice,
-                      }));
-                    }}
-                    placeholder="Contoh: Minyak Goreng Bimoli 1L, Beras Ramos 5kg"
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                  />
-                  <p className="text-[11px] text-slate-400">
-                    Dikenali otomatis oleh Gemini AI atau ketik manual.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Field: Harga Jual Satuan */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-700">
-                      Harga Jual Satuan (Rp) <span className="text-rose-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-500">Rp</span>
-                      <input
-                        type="text"
-                        required
-                        value={stockForm.retailPrice}
-                        onChange={(e) => {
-                          const formatted = formatThousand(e.target.value);
-                          setStockForm(prev => ({ ...prev, retailPrice: formatted }));
-                        }}
-                        placeholder="15.000"
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9 pr-3 py-2.5 text-xs sm:text-sm font-bold text-slate-900 focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Field: Jumlah Masuk (Qty) */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-700">
-                      Jumlah Masuk (Qty) <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      required
-                      min="1"
-                      value={stockForm.qty}
-                      onChange={(e) => setStockForm(prev => ({ ...prev, qty: Math.max(1, Number(e.target.value) || 1) }))}
-                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-bold text-slate-900 focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Field: Kategori */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-700">Kategori</label>
-                    <input
-                      type="text"
-                      value={stockForm.category}
-                      onChange={(e) => setStockForm(prev => ({ ...prev, category: e.target.value }))}
-                      placeholder="Sembako"
-                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
-                  </div>
-
-                  {/* Field: Satuan */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-700">Satuan Dasar</label>
-                    <input
-                      type="text"
-                      value={stockForm.baseUnit}
-                      onChange={(e) => setStockForm(prev => ({ ...prev, baseUnit: e.target.value }))}
-                      placeholder="pcs, kg, liter, bks"
-                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                {/* Status Notice */}
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600">
-                  {stockForm.isExisting ? (
-                    <span className="text-amber-800 font-semibold flex items-center gap-1.5">
-                      <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Barang sudah ada di database. Stok akan otomatis bertambah (+{stockForm.qty}).</span>
-                    </span>
-                  ) : (
-                    <span className="text-teal-800 font-semibold flex items-center gap-1.5">
-                      <Plus className="w-3.5 h-3.5 text-teal-600" />
-                      <span>Barang baru akan disimpan ke database & langsung tersinkronisasi ke seluruh perangkat.</span>
-                    </span>
-                  )}
-                </div>
-
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  id="btn-save-stock-in"
-                  className="w-full py-3 rounded-xl bg-teal-700 hover:bg-teal-600 active:scale-98 text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-md shadow-teal-700/20 transition cursor-pointer"
-                >
-                  <PackagePlus className="w-5 h-5" />
-                  <span>Simpan ke Database (Update Stok)</span>
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ---------------------------------------------------- */}
-      {/* TAB 3: LAPORAN PROFIT HARIAN BERSIH (TANPA MODAL) */}
+      {/* TAB 2: LAPORAN PROFIT HARIAN BERSIH (TANPA MODAL) */}
       {/* ---------------------------------------------------- */}
       {activeTab === 'laporan' && (
         <div className="space-y-6">
@@ -1286,30 +980,10 @@ export const AiProductScannerDashboard: React.FC = () => {
                               window.scrollTo({ top: 0, behavior: 'smooth' });
                             }}
                             disabled={prod.stock <= 0}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[11px] disabled:opacity-40 cursor-pointer"
+                            className="px-3 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[11px] disabled:opacity-40 cursor-pointer"
                             title="Jual Produk Ini"
                           >
                             Jual
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveTab('tambah-stok');
-                              setStockForm({
-                                name: prod.name,
-                                retailPrice: formatThousand(prod.retailPrice),
-                                qty: 5,
-                                category: prod.category || 'Sembako',
-                                baseUnit: prod.baseUnit || 'pcs',
-                                isExisting: true,
-                                existingStock: prod.stock,
-                              });
-                              window.scrollTo({ top: 0, behavior: 'smooth' });
-                            }}
-                            className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 font-bold text-[11px] cursor-pointer"
-                            title="Tambah Stok Produk Ini"
-                          >
-                            + Stok
                           </button>
                         </div>
                       </td>

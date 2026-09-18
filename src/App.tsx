@@ -18,19 +18,26 @@ import { ReportsView } from './components/admin/ReportsView';
 import { ShiftModal } from './components/pos/ShiftModal';
 import { AiProductScannerDashboard } from './components/scanner/AiProductScannerDashboard';
 import { AutoStockScannerView } from './components/gudang/AutoStockScannerView';
+import { ShiftReconciliationView } from './components/cashier/ShiftReconciliationView';
 
 const MainContent: React.FC = () => {
   const { currentUser } = useStore();
-  const [currentTab, setCurrentTab] = useState<string>('scanner');
+  const [currentTab, setCurrentTab] = useState<string>('barcode-pos');
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
 
-  // Set initial tab to camera scanner dashboard
+  // Set initial tab based on role
   useEffect(() => {
     if (!currentUser) return;
-    if (!currentTab) {
-      setCurrentTab('scanner');
+    if (!currentTab || currentTab === 'scanner') {
+      if (currentUser.role === 'gudang' || currentUser.role === 'warehouse_admin') {
+        setCurrentTab('auto-stock-scanner');
+      } else if (currentUser.role === 'kasir' || currentUser.role === 'admin') {
+        setCurrentTab('barcode-pos');
+      } else {
+        setCurrentTab('barcode-pos');
+      }
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, currentUser?.role]);
 
   if (!currentUser) {
     return <LoginScreen />;
@@ -48,6 +55,7 @@ const MainContent: React.FC = () => {
         {currentTab === 'scanner' && <AiProductScannerDashboard />}
         {currentTab === 'auto-stock-scanner' && <AutoStockScannerView />}
         {currentTab === 'barcode-pos' && <BarcodePosCashier />}
+        {currentTab === 'shift-reconciliation' && <ShiftReconciliationView />}
         {currentTab === 'pos' && <PosView />}
         {currentTab === 'history' && <HistoryView />}
         {currentTab === 'kasbon' && <KasbonView />}

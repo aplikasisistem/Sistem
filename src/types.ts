@@ -17,7 +17,7 @@ export function isWarehouseAdmin(user: UserAccount | null | undefined): boolean 
   if (!user) return false;
   if (user.role === 'warehouse_admin') return true;
   if (user.role === 'admin') return true;
-  if (user.role === 'gudang' && user.manage_inventory === true) return true;
+  if (user.role === 'gudang') return true;
   return false;
 }
 
@@ -114,13 +114,18 @@ export interface CashierShift {
   endTime?: string;
   startingCash: number; // Modal Awal
   totalCashSales: number;
+  totalCashIntake?: number; // Total penerimaan kas tunai
+  totalExpensesPaid?: number; // Total pengeluaran operasional dibayar dari laci
   totalQrisSales: number;
   totalKasbonSales: number;
-  expectedDrawerCash: number; // startingCash + totalCashSales + cash payments received
+  expectedDrawerCash: number; // startingCash + totalCashSales/Intake - totalExpensesPaid
   actualDrawerCash?: number;
   discrepancy?: number; // actual - expected
   status: 'open' | 'closed';
   notes?: string;
+  denominationCounts?: Record<string, number>; // Hitungan pecahan fisik
+  reconciledAt?: string;
+  reconciledBy?: string;
 }
 
 export interface Supplier {
