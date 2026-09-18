@@ -197,8 +197,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             ref={tabsContainerRef}
             className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar scroll-smooth flex-1 py-0.5"
           >
-            {/* Kasir Barcode Cepat (Accessible for Kasir, Gudang, Warehouse Admin, and Admin) */}
-            {(role === 'kasir' || role === 'gudang' || role === 'warehouse_admin' || role === 'admin') && (
+            {/* Kasir Barcode Cepat (Accessible for Kasir and Admin ONLY) */}
+            {(role === 'kasir' || role === 'admin') && (
               <button
                 type="button"
                 id="tab-barcode-pos"
@@ -289,7 +289,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }`}
                 >
                   <Barcode className="w-4 h-4" />
-                  <span>Input Stok Otomatis (Scan Gudang)</span>
+                  <span>Scan Masuk Stok Otomatis</span>
                 </button>
 
                 <button
@@ -303,22 +303,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }`}
                 >
                   <Package className="w-4 h-4" />
-                  <span>Stok & Inventaris Sembako</span>
+                  <span>Input Stok Manual & Inventaris</span>
                 </button>
 
-                <button
-                  type="button"
-                  id="tab-supplier"
-                  onClick={() => setCurrentTab('supplier')}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
-                    currentTab === 'supplier'
-                      ? 'bg-teal-700 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                >
-                  <DollarSign className="w-4 h-4" />
-                  <span>Penerimaan & Hutang Supplier</span>
-                </button>
+                {(role === 'warehouse_admin' || role === 'admin') && (
+                  <button
+                    type="button"
+                    id="tab-supplier"
+                    onClick={() => setCurrentTab('supplier')}
+                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer shrink-0 ${
+                      currentTab === 'supplier'
+                        ? 'bg-teal-700 text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    }`}
+                  >
+                    <DollarSign className="w-4 h-4" />
+                    <span>Penerimaan & Hutang Supplier</span>
+                  </button>
+                )}
               </>
             )}
 

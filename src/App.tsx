@@ -22,22 +22,29 @@ import { ShiftReconciliationView } from './components/cashier/ShiftReconciliatio
 
 const MainContent: React.FC = () => {
   const { currentUser } = useStore();
-  const [currentTab, setCurrentTab] = useState<string>('barcode-pos');
+  const [currentTab, setCurrentTab] = useState<string>('');
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
 
-  // Set initial tab based on role
+  // Set initial tab based on role and guard permissions
   useEffect(() => {
     if (!currentUser) return;
-    if (!currentTab || currentTab === 'scanner') {
-      if (currentUser.role === 'gudang' || currentUser.role === 'warehouse_admin') {
+    if (currentUser.role === 'gudang') {
+      if (currentTab !== 'auto-stock-scanner' && currentTab !== 'gudang') {
         setCurrentTab('auto-stock-scanner');
-      } else if (currentUser.role === 'kasir' || currentUser.role === 'admin') {
-        setCurrentTab('barcode-pos');
-      } else {
+      }
+    } else if (currentUser.role === 'warehouse_admin') {
+      if (currentTab !== 'auto-stock-scanner' && currentTab !== 'gudang' && currentTab !== 'supplier') {
+        setCurrentTab('auto-stock-scanner');
+      }
+    } else if (currentUser.role === 'kasir') {
+      const allowedKasirTabs = ['barcode-pos', 'pos', 'history', 'shift-reconciliation', 'kasbon'];
+      if (!allowedKasirTabs.includes(currentTab)) {
         setCurrentTab('barcode-pos');
       }
+    } else if (!currentTab || currentTab === 'scanner') {
+      setCurrentTab('barcode-pos');
     }
-  }, [currentUser?.id, currentUser?.role]);
+  }, [currentUser?.id, currentUser?.role, currentTab]);
 
   if (!currentUser) {
     return <LoginScreen />;

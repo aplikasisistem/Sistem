@@ -132,6 +132,21 @@ interface StoreContextType {
     amountPaid: number,
     kasbonDetails?: { customerName: string; customerPhone?: string; dueDate?: string; notes?: string }
   ) => Promise<Transaction | null>;
+  checkoutDirect: (params: {
+    items: Array<{
+      productId?: string;
+      barcode?: string;
+      productName: string;
+      quantity: number;
+      unit?: string;
+      unitPrice: number;
+      costPrice?: number;
+      subtotal: number;
+    }>;
+    paymentMethod: PaymentMethod;
+    amountPaid: number;
+    customInvoice?: string;
+  }) => Promise<Transaction | null>;
   payKasbon: (transactionId: string) => Promise<void>;
   updateTransaction: (transaction: Transaction) => Promise<void>;
   deleteTransaction: (transactionId: string) => Promise<void>;
@@ -194,6 +209,7 @@ const STORAGE_KEYS = {
   EXPENSES: 'alunk_expenses',
   AUTH_USER: 'alunk_auth_user',
   CATEGORIES: 'alunk_categories',
+  TRANSACTIONS: 'alunk_transactions',
   DB_RESET_V2: 'alunk_cleaned_flag_v2',
 };
 
@@ -1510,6 +1526,134 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return newTransaction;
   };
 
+  // Direct Checkout for Barcode POS & Instant Cashier (Auto Deduct Stock & Record Transaction)
+  const checkoutDirect = async (params: {
+    items: Array<{
+      productId?: string;
+      barcode?: string;
+      productName: string;
+      quantity: number;
+      unit?: string;
+      unitPrice: number;
+      costPrice?: number;
+      subtotal: number;
+    }>;
+    paymentMethod: PaymentMethod;
+    amountPaid: number;
+    customInvoice?: string;
+  }): Promise<Transaction | null> => {
+    if (!params.items || params.items.length === 0) return null;
+
+    const now = new Date();
+    const invoiceNumber = params.customInvoice || `TRX-${Date.now().toString().slice(-6)}`;
+    const totalAmount = params.items.reduce((sum, item) => sum + item.subtotal, 0);
+    const totalCost = params.items.reduce((sum, item) => sum + (item.quantity * (item.costPrice || (item.unitPrice * 0.8))), 0);
+    const change = params.paymentMethod === 'tunai' ? Math.max(0, params.amountPaid - totalAmount) : 0;
+
+    const newTransaction: Transaction = {
+      id: `trx_${Date.now()}`,
+      invoiceNumber,
+      timestamp: now.toISOString(),
+      cashierId: currentUser?.id || 'kasir',
+      cashierName: currentUser?.name || 'Kasir',
+      items: params.items.map(item => ({
+        productId: item.productId || `prod_${Date.now()}`,
+        productName: item.productName,
+        quantity: item.quantity,
+        unit: item.unit || 'pcs',
+        unitPrice: item.unitPrice,
+        costPrice: item.costPrice || item.unitPrice * 0.8,
+        subtotal: item.subtotal,
+        priceType: 'retail',
+      })),
+      totalAmount,
+      totalCost,
+      paymentMethod: params.paymentMethod,
+      amountPaid: params.amountPaid,
+      change,
+      status: 'completed',
+    };
+
+    // 1. Deduct Product Stocks Automatically
+    setProducts(prev => {
+      const copy = [...prev];
+      params.items.forEach(cartItem => {
+        const prodIndex = copy.findIndex(
+          p => (cartItem.productId && p.id === cartItem.productId) ||
+               (cartItem.barcode && p.barcode === cartItem.barcode) ||
+               p.name.toLowerCase() === cartItem.productName.toLowerCase()
+        );
+        if (prodIndex > -1) {
+          const currentStock = Number(copy[prodIndex].stock) || 0;
+          const updated = {
+            ...copy[prodIndex],
+            stock: Math.max(0, currentStock - cartItem.quantity),
+          };
+          copy[prodIndex] = updated;
+          // Cloud Sync Product Stock
+          safeSetDoc(doc(db, 'products', updated.id), updated).catch(err => {
+            handleFirestoreError(err, OperationType.UPDATE, `products/${updated.id}`);
+          });
+        }
+      });
+      try {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(copy));
+      } catch (e) {}
+      return copy;
+    });
+
+    // 2. Update Current Shift Cash Drawer
+    if (currentShift && currentShift.status === 'open') {
+      setCurrentShift(prev => {
+        if (!prev) return null;
+        let addCash = 0;
+        let addQris = 0;
+        let addKasbon = 0;
+
+        if (params.paymentMethod === 'tunai') addCash = totalAmount;
+        else if (params.paymentMethod === 'qris') addQris = totalAmount;
+        else if (params.paymentMethod === 'kasbon') addKasbon = totalAmount;
+
+        const newCashSales = (prev.totalCashSales || 0) + addCash;
+        const newIntake = (prev.totalCashIntake ?? prev.totalCashSales ?? 0) + addCash;
+        const expenses = prev.totalExpensesPaid ?? 0;
+
+        const updatedShift = {
+          ...prev,
+          totalCashSales: newCashSales,
+          totalCashIntake: newIntake,
+          totalQrisSales: (prev.totalQrisSales || 0) + addQris,
+          totalKasbonSales: (prev.totalKasbonSales || 0) + addKasbon,
+          expectedDrawerCash: Math.max(0, prev.startingCash + newIntake - expenses),
+        };
+        try {
+          localStorage.setItem(STORAGE_KEYS.CURRENT_SHIFT, JSON.stringify(updatedShift));
+        } catch (e) {}
+        safeSetDoc(doc(db, 'shifts', updatedShift.id), updatedShift).catch(err => {
+          handleFirestoreError(err, OperationType.UPDATE, `shifts/${updatedShift.id}`);
+        });
+        return updatedShift;
+      });
+    }
+
+    // 3. Save Transaction
+    setTransactions(prev => [newTransaction, ...prev]);
+    try {
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([newTransaction, ...transactions]));
+    } catch (e) {}
+    safeSetDoc(doc(db, 'transactions', newTransaction.id), newTransaction).catch(err => {
+      handleFirestoreError(err, OperationType.CREATE, `transactions/${newTransaction.id}`);
+    });
+
+    if (isSupabaseConfigured) {
+      try {
+        await insertTransactionQuery(newTransaction);
+      } catch (e) {}
+    }
+
+    return newTransaction;
+  };
+
   // Kasbon Settlement (Pelunasan Hutang Pelanggan - Async ke Supabase)
   const payKasbon = async (transactionId: string): Promise<void> => {
     const targetTrx = transactions.find(t => t.id === transactionId);
@@ -2056,6 +2200,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         transactions,
         checkout,
+        checkoutDirect,
         payKasbon,
         updateTransaction,
         deleteTransaction,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { Product, UnitType, isWarehouseAdmin } from '../../types';
 import { formatRupiah, formatNumber, formatDateIndo } from '../../utils/formatters';
@@ -92,6 +92,14 @@ export const AutoStockScannerView: React.FC = () => {
   const [manualCode, setManualCode] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Manual Qty Input Modal State (After Barcode Detection)
+  const [pendingManualProduct, setPendingManualProduct] = useState<{
+    product: Product;
+    detectedBarcode: string;
+  } | null>(null);
+  const [manualQtyInput, setManualQtyInput] = useState<string>('1');
+  const [manualBatchInput, setManualBatchInput] = useState<string>('');
+
   // Toast / Feedback State
   const [lastScannedResult, setLastScannedResult] = useState<{
     productName: string;
@@ -137,22 +145,88 @@ export const AutoStockScannerView: React.FC = () => {
     return () => clearTimeout(t);
   }, [toastMessage]);
 
-  // Process barcode addition with automated stock update
-  const handleBarcodeProcess = useCallback(async (
+  // Deteksi status barcode (Cukup mendeteksi & beri notifikasi, tanpa auto +1 stok)
+  const handleBarcodeDetect = useCallback((
     scannedCode: string,
     source: 'camera_auto_scan' | 'manual_barcode' = 'camera_auto_scan'
   ) => {
     const cleanCode = String(scannedCode || '').replace(/[\r\n\t]/g, '').trim();
     if (!cleanCode || isProcessing) return;
 
+    // Cari produk di inventaris berdasarkan barcode atau ID
+    const existing = products.find(
+      p => (p.barcode && p.barcode.trim() === cleanCode) ||
+           p.id === cleanCode ||
+           p.name.toLowerCase() === cleanCode.toLowerCase()
+    );
+
+    if (existing) {
+      // PRODUK SUDAH TERDAFTAR: Berikan nada beep & notifikasi berhasil
+      if (soundEnabled) {
+        playBeep(880, 'sine', 0.12);
+        setTimeout(() => playBeep(1174, 'sine', 0.15), 100);
+      }
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate([80, 40, 80]); } catch (e) {}
+      }
+
+      setToastMessage({
+        type: 'success',
+        title: '✅ Produk Sudah Terdaftar!',
+        desc: `${existing.name} (Barcode: ${cleanCode}) terdaftar di sistem. Stok saat ini: ${existing.stock} ${existing.baseUnit}. Silakan masukkan kuantitas Qty manual.`,
+      });
+
+      // Buka dialog input kuantitas manual untuk produk ini
+      setPendingManualProduct({
+        product: existing,
+        detectedBarcode: cleanCode,
+      });
+      setManualQtyInput('1');
+      setManualBatchInput(batchNumber || '');
+      setManualCode('');
+    } else {
+      // PRODUK BELUM TERDAFTAR: Berikan nada peringatan & buka modal pendaftaran cepat
+      if (soundEnabled) {
+        playBeep(440, 'triangle', 0.25);
+      }
+      setUnregisteredBarcode(cleanCode);
+      setNewProdName('');
+      setNewProdInitialStock('10');
+      setNewProdCostPrice('');
+      setNewProdRetailPrice('');
+      setIsRegisterModalOpen(true);
+
+      setToastMessage({
+        type: 'warning',
+        title: '⚠️ Barcode Belum Terdaftar',
+        desc: `Barcode ${cleanCode} belum terdaftar di inventaris. Silakan daftarkan produk baru terlebih dahulu.`,
+      });
+    }
+  }, [products, soundEnabled, batchNumber, isProcessing]);
+
+  // Simpan penambahan stok setelah user menginput Qty secara manual
+  const handleConfirmManualStock = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!pendingManualProduct || isProcessing) return;
+
+    const qty = parseFloat(manualQtyInput);
+    if (isNaN(qty) || qty <= 0) {
+      setToastMessage({
+        type: 'error',
+        title: 'Kuantitas Tidak Valid',
+        desc: 'Masukkan kuantitas Qty minimal 1.',
+      });
+      return;
+    }
+
     setIsProcessing(true);
 
     try {
       const result = await autoInboundStockByBarcode({
-        barcode: cleanCode,
-        addedQty: batchQty,
-        batchNumber: batchNumber.trim() || undefined,
-        source,
+        barcode: pendingManualProduct.detectedBarcode,
+        addedQty: qty,
+        batchNumber: manualBatchInput.trim() || undefined,
+        source: 'manual_qty_after_scan',
       });
 
       if (result.status === 'updated' && result.product) {
@@ -166,8 +240,8 @@ export const AutoStockScannerView: React.FC = () => {
 
         setLastScannedResult({
           productName: result.product.name,
-          barcode: cleanCode,
-          addedQty: result.addedQty || batchQty,
+          barcode: pendingManualProduct.detectedBarcode,
+          addedQty: qty,
           currentStock: result.currentStock ?? result.product.stock,
           unit: result.product.baseUnit,
           timestamp: new Date().toLocaleTimeString('id-ID'),
@@ -175,27 +249,13 @@ export const AutoStockScannerView: React.FC = () => {
 
         setToastMessage({
           type: 'success',
-          title: `+${result.addedQty || batchQty} ${result.product.baseUnit} Masuk Gudang!`,
-          desc: `${result.product.name} • Total Stok: ${result.currentStock ?? result.product.stock} ${result.product.baseUnit}`,
+          title: `+${qty} ${result.product.baseUnit} Masuk Gudang!`,
+          desc: `${result.product.name} • Total Stok Sekarang: ${result.currentStock ?? result.product.stock} ${result.product.baseUnit}`,
         });
 
+        setPendingManualProduct(null);
         setManualCode('');
-      } else if (result.status === 'not_found') {
-        if (soundEnabled) {
-          playBeep(440, 'triangle', 0.3);
-        }
-        setUnregisteredBarcode(cleanCode);
-        setNewProdName('');
-        setNewProdInitialStock(String(batchQty));
-        setNewProdCostPrice('');
-        setNewProdRetailPrice('');
-        setIsRegisterModalOpen(true);
-
-        setToastMessage({
-          type: 'warning',
-          title: 'Barcode Belum Terdaftar',
-          desc: `Barcode ${cleanCode} tidak ditemukan di sistem. Buka form registrasi cepat.`,
-        });
+        refocusInput();
       } else if (result.status === 'denied') {
         setToastMessage({
           type: 'error',
@@ -204,21 +264,21 @@ export const AutoStockScannerView: React.FC = () => {
         });
       }
     } catch (err: any) {
-      console.error('Stock process error:', err);
+      console.error('Stock confirmation error:', err);
       setToastMessage({
         type: 'error',
-        title: 'Gagal Memproses Barcode',
-        desc: err.message || 'Terjadi kesalahan sistem inventaris.',
+        title: 'Gagal Menambah Stok',
+        desc: err.message || 'Terjadi kesalahan sistem saat memperbarui stok.',
       });
     } finally {
       setIsProcessing(false);
       refocusInput();
     }
-  }, [autoInboundStockByBarcode, batchQty, batchNumber, soundEnabled, isProcessing, refocusInput]);
+  };
 
-  // Handle triggered barcode from camera with cooldown
+  // Handle barcode terdeteksi dari kamera dengan jeda debounce (hanya deteksi, tanpa auto +1 stok)
   const onCameraBarcodeDetected = useCallback((barcodeString: string) => {
-    if (isCooldown || isProcessing) return;
+    if (isCooldown || isProcessing || pendingManualProduct) return;
 
     lastScannedCodeRef.current = barcodeString;
     setIsCooldown(true);
@@ -237,8 +297,8 @@ export const AutoStockScannerView: React.FC = () => {
       }
     }, step);
 
-    handleBarcodeProcess(barcodeString, 'camera_auto_scan');
-  }, [isCooldown, isProcessing, handleBarcodeProcess]);
+    handleBarcodeDetect(barcodeString, 'camera_auto_scan');
+  }, [isCooldown, isProcessing, pendingManualProduct, handleBarcodeDetect]);
 
   // Stop Camera Stream
   const stopCamera = useCallback(() => {
@@ -416,7 +476,7 @@ export const AutoStockScannerView: React.FC = () => {
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualCode.trim()) return;
-    handleBarcodeProcess(manualCode.trim(), 'manual_barcode');
+    handleBarcodeDetect(manualCode.trim(), 'manual_barcode');
   };
 
   // Auto-submit when manual barcode reaches 13 digits (EAN-13)
@@ -425,7 +485,7 @@ export const AutoStockScannerView: React.FC = () => {
     setManualCode(val);
     const clean = val.replace(/[\r\n\t]/g, '').trim();
     if (clean.length === 13 && /^\d+$/.test(clean)) {
-      handleBarcodeProcess(clean, 'manual_barcode');
+      handleBarcodeDetect(clean, 'manual_barcode');
     }
   };
 
@@ -524,14 +584,42 @@ export const AutoStockScannerView: React.FC = () => {
     }
   };
 
-  // Sample Barcodes for Quick Testing in Preview
-  const sampleTestItems = [
-    { label: 'Sania 2L (EAN-13)', code: '8994557315125' },
-    { label: 'Indomie Goreng', code: '8999999123456' },
-    { label: 'Aqua 600ml', code: '8991001100123' },
-    { label: 'Gulaku 1kg', code: '8991004' },
-    { label: 'Telur Ayam 1kg', code: '8991007' },
-  ];
+  // Menghitung barang yang paling sering di-input masuk gudang berdasarkan stockLogs & master produk
+  const frequentInboundProducts = useMemo(() => {
+    const inboundCounts: Record<string, { count: number; totalQty: number }> = {};
+
+    (stockLogs || []).forEach(log => {
+      const key = log.barcode || log.productId;
+      if (!inboundCounts[key]) {
+        inboundCounts[key] = { count: 0, totalQty: 0 };
+      }
+      inboundCounts[key].count += 1;
+      inboundCounts[key].totalQty += (log.addedQty || 0);
+    });
+
+    const mapped = (products || []).map(prod => {
+      const key = prod.barcode || prod.id;
+      const stats = inboundCounts[key] || { count: 0, totalQty: 0 };
+      return {
+        ...prod,
+        inboundTimes: stats.count,
+        totalInboundQty: stats.totalQty,
+      };
+    });
+
+    // Urutkan berdasarkan frekuensi input terbanyak, lalu total kuantitas, lalu sisa stok
+    mapped.sort((a, b) => {
+      if (b.inboundTimes !== a.inboundTimes) {
+        return b.inboundTimes - a.inboundTimes;
+      }
+      if (b.totalInboundQty !== a.totalInboundQty) {
+        return b.totalInboundQty - a.totalInboundQty;
+      }
+      return (b.stock || 0) - (a.stock || 0);
+    });
+
+    return mapped.slice(0, 8);
+  }, [stockLogs, products]);
 
   // -------------------------------------------------------------------------
   // RBAC GUARD VIEW: ACCESS DENIED IF NOT WAREHOUSE ADMIN
@@ -619,30 +707,20 @@ export const AutoStockScannerView: React.FC = () => {
           </div>
         </div>
 
-        {/* Petugas Info & Batch Selector */}
+        {/* Petugas Info & Workflow Mode */}
         <div className="flex items-center gap-3 bg-slate-50 rounded-2xl border border-slate-200 p-2 sm:px-4 sm:py-2">
           <div className="text-right hidden sm:block">
             <p className="text-[11px] font-semibold text-slate-700">{currentUser?.name}</p>
             <p className="text-[10px] text-teal-600 font-mono font-bold">Admin Gudang (Full Access)</p>
           </div>
           <div className="h-7 w-px bg-slate-200 hidden sm:block" />
-          <div className="flex items-center gap-1.5">
-            <label className="text-xs font-bold text-slate-600 whitespace-nowrap">Kuantitas Batch:</label>
-            <div className="flex items-center bg-white rounded-xl border border-slate-300 overflow-hidden shadow-2xs">
-              {[1, 5, 10, 12].map(qty => (
-                <button
-                  key={qty}
-                  type="button"
-                  onClick={() => setBatchQty(qty)}
-                  className={`px-2.5 py-1 text-xs font-bold transition ${
-                    batchQty === qty
-                      ? 'bg-teal-600 text-white'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  +{qty}
-                </button>
-              ))}
+          <div className="flex items-center gap-2 bg-white rounded-xl border border-teal-200/90 px-3 py-1.5 shadow-2xs">
+            <div className="w-5 h-5 rounded-md bg-teal-50 text-teal-700 flex items-center justify-center text-xs font-bold">
+              ✓
+            </div>
+            <div className="text-left">
+              <span className="text-[10px] uppercase font-bold text-teal-800 tracking-wider block">Alur Input Gudang</span>
+              <span className="text-xs font-black text-slate-900">Scan Barcode ➔ Input Qty Manual</span>
             </div>
           </div>
         </div>
@@ -661,7 +739,7 @@ export const AutoStockScannerView: React.FC = () => {
                   <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isCooldown ? 'bg-amber-500' : 'bg-emerald-500'}`} />
                 </span>
                 <span className="text-xs font-bold tracking-wide uppercase">
-                  {isCooldown ? `Cooldown (${cooldownRemaining}s)` : 'Kamera Aktif • Deteksi Otomatis'}
+                  {isCooldown ? `Terdeteksi (${cooldownRemaining}s)` : 'Kamera Aktif • Deteksi Kode Produk'}
                 </span>
               </div>
 
@@ -741,10 +819,10 @@ export const AutoStockScannerView: React.FC = () => {
                     {!isCooldown ? (
                       <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-teal-400 to-transparent shadow-[0_0_12px_#2dd4bf] animate-bounce my-auto" />
                     ) : (
-                      <div className="my-auto flex flex-col items-center justify-center text-emerald-400 bg-black/60 px-4 py-2 rounded-xl backdrop-blur-xs border border-emerald-500/50">
-                        <CheckCircle2 className="w-8 h-8 text-emerald-400 animate-pulse mb-1" />
-                        <span className="text-xs font-bold text-white">Stok Ditambahkan!</span>
-                        <span className="text-[10px] text-emerald-300">Jeda anti-duplikat: {cooldownRemaining}s</span>
+                      <div className="my-auto flex flex-col items-center justify-center text-teal-300 bg-black/80 px-5 py-3 rounded-2xl backdrop-blur-md border border-teal-500/60 shadow-xl text-center">
+                        <CheckCircle2 className="w-8 h-8 text-teal-400 animate-pulse mb-1" />
+                        <span className="text-xs font-black text-white">Produk Terdeteksi!</span>
+                        <span className="text-[10px] text-teal-200">Silakan input Qty manual ({cooldownRemaining}s)</span>
                       </div>
                     )}
 
@@ -784,7 +862,7 @@ export const AutoStockScannerView: React.FC = () => {
               )}
             </div>
 
-            {/* Bottom Inbound Config & Batch Controls */}
+            {/* Bottom Inbound Config & Status */}
             <div className="p-4 bg-slate-950 border-t border-slate-800/80 text-white flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-400">Nomor Batch/Lot (Opsional):</span>
@@ -798,37 +876,69 @@ export const AutoStockScannerView: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-between sm:justify-end gap-3 text-xs">
-                <span className="text-slate-400">
-                  Mode: <strong className="text-teal-400">Auto +{batchQty} Stok</strong>
+                <span className="text-teal-300 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-teal-400" />
+                  Mode: <strong className="text-white">Deteksi Terdaftar ➔ Qty Manual</strong>
                 </span>
-                <span className="text-slate-500">|</span>
-                <span className="text-slate-400">
-                  Debounce: <strong className="text-white">2.5 Detik</strong>
+                <span className="text-slate-600">|</span>
+                <span className="text-slate-400 text-[11px]">
+                  (Auto +1 Stok Dihilangkan)
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Quick Barcode Testing Chips for Preview Demo */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs">
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-teal-600" />
-                Barcode Uji Coba Cepat (Klik untuk Simulasi):
+          {/* Barang Paling Sering Di-Input Masuk Gudang (Rapi & Terstruktur) */}
+          <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3.5 border-b border-slate-100">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-teal-600" />
+                  Barang Paling Sering Di-Input Masuk
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Produk dengan frekuensi masuk tertinggi. Klik produk untuk deteksi otomatis & input Qty manual.
+                </p>
+              </div>
+              <span className="self-start sm:self-auto text-[11px] font-bold text-teal-800 bg-teal-50 border border-teal-200 px-2.5 py-1 rounded-full whitespace-nowrap">
+                {frequentInboundProducts.length} Produk Rutin
               </span>
-              <span className="text-[11px] text-slate-400">Simulasi scanner gudang</span>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              {sampleTestItems.map(item => (
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+              {frequentInboundProducts.map((item, idx) => (
                 <button
-                  key={item.code}
+                  key={item.id || item.barcode}
                   type="button"
-                  onClick={() => handleBarcodeProcess(item.code, 'manual_barcode')}
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-50 hover:bg-teal-50 hover:border-teal-300 text-slate-700 border border-slate-200 transition-all flex items-center gap-1.5 cursor-pointer"
+                  onClick={() => handleBarcodeDetect(item.barcode, 'manual_barcode')}
+                  className="h-full p-3 rounded-2xl bg-slate-50/80 hover:bg-teal-50/70 border border-slate-200/90 hover:border-teal-300 text-left transition-all duration-200 shadow-2xs hover:shadow-xs flex flex-col justify-between group cursor-pointer"
                 >
-                  <Barcode className="w-3 h-3 text-slate-400" />
-                  <span>{item.label}</span>
-                  <span className="font-mono text-[10px] text-slate-400">({item.code})</span>
+                  <div>
+                    {/* Top row: Rank badge & barcode */}
+                    <div className="flex items-center justify-between gap-1 mb-1.5">
+                      <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md bg-teal-100 text-teal-800">
+                        #{idx + 1}
+                      </span>
+                      <span className="font-mono text-[10px] text-slate-500 font-semibold truncate group-hover:text-teal-700">
+                        {item.barcode}
+                      </span>
+                    </div>
+
+                    {/* Product Name */}
+                    <h4 className="font-extrabold text-xs text-slate-900 line-clamp-2 leading-tight group-hover:text-teal-950">
+                      {item.name}
+                    </h4>
+                  </div>
+
+                  {/* Bottom row: Stok and Inbound frequency */}
+                  <div className="mt-3 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-500 font-medium">
+                      Stok: <strong className="text-slate-800 font-bold">{item.stock}</strong> {item.baseUnit}
+                    </span>
+                    <span className="text-[10px] font-bold text-teal-700 bg-teal-100/60 px-1.5 py-0.5 rounded">
+                      {item.inboundTimes > 0 ? `${item.inboundTimes}x Masuk` : 'Rutin'}
+                    </span>
+                  </div>
                 </button>
               ))}
             </div>
@@ -1157,6 +1267,154 @@ export const AutoStockScannerView: React.FC = () => {
                 >
                   <Plus className="w-4 h-4" />
                   <span>Daftarkan & Tambah Stok</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MANUAL QUANTITY INPUT MODAL (AFTER PRODUCT REGISTRATION DETECTED) */}
+      {pendingManualProduct && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-teal-50 text-teal-700 flex items-center justify-center border border-teal-200">
+                  <CheckCircle2 className="w-5 h-5 text-teal-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Produk Terdaftar!</h3>
+                  <p className="text-xs text-slate-500">Tentukan kuantitas stok masuk secara manual</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingManualProduct(null);
+                  refocusInput();
+                }}
+                className="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Product Summary Card */}
+            <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-bold text-teal-700 uppercase tracking-wider bg-teal-100/70 px-2 py-0.5 rounded-md">
+                    {pendingManualProduct.product.category || 'Barang Toko'}
+                  </span>
+                  <h4 className="text-sm font-black text-slate-900 mt-1">
+                    {pendingManualProduct.product.name}
+                  </h4>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="text-[10px] text-slate-400 block">Stok Gudang:</span>
+                  <span className="font-extrabold text-xs text-slate-800">
+                    {pendingManualProduct.product.stock} {pendingManualProduct.product.baseUnit}
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs font-mono text-slate-500">
+                <span>Barcode:</span>
+                <span className="font-bold text-slate-700">{pendingManualProduct.detectedBarcode}</span>
+              </div>
+            </div>
+
+            {/* Manual Qty Input Form */}
+            <form onSubmit={handleConfirmManualStock} className="space-y-4 mt-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span>Jumlah / Kuantitas Masuk (Qty) *</span>
+                  <span className="text-[11px] font-normal text-slate-500">
+                    Satuan: <strong className="text-slate-800 font-bold">{pendingManualProduct.product.baseUnit}</strong>
+                  </span>
+                </label>
+
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    required
+                    autoFocus
+                    value={manualQtyInput}
+                    onChange={e => setManualQtyInput(e.target.value)}
+                    placeholder="Masukkan Qty..."
+                    className="w-full px-4 py-3 bg-white border-2 border-teal-500 rounded-2xl text-center text-2xl font-black text-slate-900 focus:outline-hidden focus:ring-4 focus:ring-teal-500/10"
+                  />
+                </div>
+
+                {/* Quick Add Buttons */}
+                <div className="grid grid-cols-6 gap-1.5 mt-2">
+                  {[1, 5, 10, 20, 50, 100].map(val => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setManualQtyInput(String(val))}
+                      className={`py-1.5 rounded-xl text-xs font-bold border transition ${
+                        manualQtyInput === String(val)
+                          ? 'bg-teal-600 border-teal-600 text-white shadow-2xs'
+                          : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-teal-50'
+                      }`}
+                    >
+                      +{val}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Batch / Lot (Optional) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Nomor Batch / Lot (Opsional)
+                </label>
+                <input
+                  type="text"
+                  value={manualBatchInput}
+                  onChange={e => setManualBatchInput(e.target.value)}
+                  placeholder="Contoh: LOT-2026-X"
+                  className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-900 focus:outline-hidden focus:border-teal-500"
+                />
+              </div>
+
+              {/* Stock Preview Calculation */}
+              <div className="p-3 bg-teal-50/70 border border-teal-100 rounded-xl text-xs flex items-center justify-between">
+                <span className="text-teal-900 font-medium">Estimasi Stok Akhir:</span>
+                <span className="font-black text-teal-800">
+                  {Math.max(0, (pendingManualProduct.product.stock || 0) + (parseFloat(manualQtyInput) || 0))}{' '}
+                  {pendingManualProduct.product.baseUnit}
+                </span>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingManualProduct(null);
+                    refocusInput();
+                  }}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-100 transition"
+                >
+                  Batal / Scan Ulang
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessing}
+                  className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-bold transition shadow-md shadow-teal-600/20 flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isProcessing ? (
+                    <RotateCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Plus className="w-4 h-4" />
+                  )}
+                  <span>Simpan & Tambah Stok</span>
                 </button>
               </div>
             </form>

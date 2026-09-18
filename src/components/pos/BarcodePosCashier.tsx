@@ -17,7 +17,8 @@ import {
   Volume2,
   VolumeX,
   CreditCard,
-  Smartphone
+  Smartphone,
+  Sparkles
 } from 'lucide-react';
 import { MobileBarcodeScanner } from './MobileBarcodeScanner';
 
@@ -120,7 +121,7 @@ const CartRowItem = React.memo<CartRowItemProps>(({ item, index, onIncrement, on
 });
 
 export const BarcodePosCashier: React.FC = () => {
-  const { products: storeProducts, currentUser, transactions } = useStore();
+  const { products: storeProducts, currentUser, transactions, checkoutDirect } = useStore();
 
   // Active state
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -131,6 +132,7 @@ export const BarcodePosCashier: React.FC = () => {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [lastInvoiceNumber, setLastInvoiceNumber] = useState(`INV-${Date.now().toString().slice(-6)}`);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
 
   // Manual Quantity Confirmation State (NO AUTO-INCREMENT)
   const [pendingScanProduct, setPendingScanProduct] = useState<MockProduct | null>(null);
@@ -446,29 +448,69 @@ export const BarcodePosCashier: React.FC = () => {
     };
   }, [cart, cashPaid]);
 
-  // 3. RECEIPT PRINT OUT (window.print() with @media print)
-  const handlePrintReceipt = () => {
+  // 3. RECEIPT PRINT OUT WITH AUTOMATIC STOCK DEDUCTION & PERSISTENCE
+  const handlePrintReceipt = async () => {
     if (cart.length === 0) {
       triggerAlert('Keranjang belanja masih kosong! Scan produk sebelum mencetak struk.', 'error');
       refocusInput();
       return;
     }
 
-    // Auto set cash if zero
-    if (cashPaid < grandTotal) {
-      setCashPaid(grandTotal);
+    if (isProcessingCheckout) return;
+
+    try {
+      setIsProcessingCheckout(true);
+
+      const effectivePaid = cashPaid < grandTotal ? grandTotal : cashPaid;
+      if (cashPaid < grandTotal) {
+        setCashPaid(grandTotal);
+      }
+
+      // Generate Invoice Code
+      const newInvoice = `TRX-${Date.now().toString().slice(-6)}`;
+      setLastInvoiceNumber(newInvoice);
+
+      // Auto deduct stock from inventory & save transaction to database and shift
+      await checkoutDirect({
+        items: cart.map((item) => ({
+          productId: item.product.id,
+          barcode: item.product.code,
+          productName: item.product.name,
+          quantity: item.qty,
+          unitPrice: item.product.price,
+          subtotal: item.subtotal,
+        })),
+        paymentMethod: 'tunai',
+        amountPaid: effectivePaid,
+        customInvoice: newInvoice,
+      });
+
+      if (soundEnabled) {
+        playBeep(true);
+      }
+
+      triggerAlert(
+        `Pembayaran berhasil! Stok otomatis terpotong & nota transaksi ${newInvoice} dicetak.`,
+        'success'
+      );
+
+      // Call browser native thermal print dialog
+      setTimeout(() => {
+        window.print();
+      }, 150);
+
+      // Clear cart after checkout
+      setTimeout(() => {
+        setCart([]);
+        setCashPaid(0);
+        refocusInput();
+      }, 500);
+    } catch (err) {
+      console.error('Error during checkout & stock deduction:', err);
+      triggerAlert('Terjadi kendala saat memproses transaksi & potong stok.', 'error');
+    } finally {
+      setIsProcessingCheckout(false);
     }
-
-    // Refresh transaction invoice number
-    const newInvoice = `TRX-${Date.now().toString().slice(-6)}`;
-    setLastInvoiceNumber(newInvoice);
-
-    // Call browser's native window.print()
-    setTimeout(() => {
-      window.print();
-      triggerAlert('Struk transaksi sedang dicetak ke printer!', 'success');
-      refocusInput();
-    }, 100);
   };
 
   if (activeMode === 'mobile') {
@@ -734,42 +776,80 @@ export const BarcodePosCashier: React.FC = () => {
         )}
 
         {/* Quick Sample Code Chips for Testing: PRODUK TERLARIS */}
-        <div className="bg-slate-50/80 rounded-2xl p-3 sm:p-4 border border-slate-200">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2.5">
-            <div className="flex items-center gap-1.5">
-              <span className="text-base leading-none">🔥</span>
-              <p className="text-xs font-black text-slate-800 uppercase tracking-wider">
-                Produk Terlaris Sembako (Klik Coba Cepat Barcode):
-              </p>
+        <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-3">
+            <div className="flex items-center gap-2">
+              <span className="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-bold shrink-0">
+                🔥
+              </span>
+              <div>
+                <p className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                  Produk Terlaris Sembako (Pilihan Cepat Barcode)
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Setiap kolom tersusun rapih & terstruktur untuk scan barcode instan
+                </p>
+              </div>
             </div>
-            <span className="text-[11px] text-slate-500 font-medium">
-              Rekomendasi item paling laku untuk scan instan
-            </span>
+            <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 shrink-0">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Stok Sinkron Otomatis</span>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+
+          {/* Structured Responsive Grid: 4 neat columns */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
             {bestSellingProducts.map((p, idx) => (
               <button
                 key={p.id}
                 type="button"
                 onClick={() => processBarcodeScan(p.code)}
-                className="px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 border border-slate-200 text-xs font-semibold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5 group active:scale-95"
+                className="p-3 rounded-xl bg-white hover:bg-emerald-50/70 hover:border-emerald-300 border border-slate-200 text-xs transition-all shadow-xs cursor-pointer flex flex-col justify-between gap-2.5 group active:scale-98 text-left h-full"
                 title={`Coba cepat scan: ${p.name} (${p.code})`}
               >
-                <span className="w-5 h-5 rounded-md bg-amber-50 text-amber-700 font-black text-[10px] flex items-center justify-center border border-amber-200 shrink-0">
-                  #{idx + 1}
-                </span>
-                <span className="font-mono text-slate-800 font-bold">{p.code}</span>
-                <span className="text-slate-700 font-medium truncate max-w-[120px] sm:max-w-[180px]">
-                  {p.name}
-                </span>
-                <span className="text-emerald-700 font-bold font-mono text-[11px] shrink-0">
-                  {formatRupiah(p.price)}
-                </span>
-                {p.soldCount > 0 && (
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold shrink-0">
-                    Terjual {p.soldCount}x
+                {/* Top Row: Rank Badge, Barcode, Stock Badge */}
+                <div className="flex items-center justify-between gap-1.5 w-full">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="w-5 h-5 rounded-md bg-amber-50 text-amber-700 font-black text-[10px] flex items-center justify-center border border-amber-200 shrink-0">
+                      #{idx + 1}
+                    </span>
+                    <span className="font-mono text-slate-800 font-extrabold text-xs tracking-tight">
+                      {p.code}
+                    </span>
+                  </div>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold shrink-0 ${
+                      p.stock <= 5
+                        ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    Stok: {p.stock}
                   </span>
-                )}
+                </div>
+
+                {/* Middle Row: Product Name */}
+                <div className="w-full">
+                  <p className="text-slate-800 font-bold text-xs leading-snug line-clamp-2 group-hover:text-emerald-800">
+                    {p.name}
+                  </p>
+                </div>
+
+                {/* Bottom Row: Price & Sold Status */}
+                <div className="flex items-center justify-between gap-1 pt-2 border-t border-slate-100 w-full mt-auto">
+                  <span className="text-emerald-700 font-black font-mono text-xs">
+                    {formatRupiah(p.price)}
+                  </span>
+                  {p.soldCount > 0 ? (
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold shrink-0">
+                      {p.soldCount}x laku
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-slate-400 font-semibold">
+                      Scan Cepat
+                    </span>
+                  )}
+                </div>
               </button>
             ))}
           </div>
@@ -963,11 +1043,21 @@ export const BarcodePosCashier: React.FC = () => {
             <div className="space-y-2 pt-2">
               <button
                 type="button"
+                disabled={isProcessingCheckout || cart.length === 0}
                 onClick={handlePrintReceipt}
-                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white font-black text-sm sm:text-base rounded-2xl transition shadow-lg shadow-emerald-700/25 cursor-pointer flex items-center justify-center gap-2"
+                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 text-white font-black text-sm sm:text-base rounded-2xl transition shadow-lg shadow-emerald-700/25 cursor-pointer flex items-center justify-center gap-2"
               >
-                <Printer className="w-5 h-5" />
-                <span>Bayar & Cetak Struk (Print)</span>
+                {isProcessingCheckout ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Memotong Stok & Mencetak...</span>
+                  </>
+                ) : (
+                  <>
+                    <Printer className="w-5 h-5" />
+                    <span>Bayar & Cetak Struk (Print)</span>
+                  </>
+                )}
               </button>
 
               <button

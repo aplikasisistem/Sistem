@@ -173,7 +173,7 @@ export const LoginScreen: React.FC = () => {
               className="px-2 py-2 rounded-xl bg-slate-800 hover:bg-emerald-950/60 border border-slate-700 hover:border-emerald-600 text-left transition cursor-pointer"
             >
               <div className="text-[11px] font-bold text-teal-400">Akun Gudang</div>
-              <div className="text-[9px] text-slate-400">Input Stok Barcode</div>
+              <div className="text-[9px] text-slate-400">Scan Masuk & Stok Manual</div>
             </button>
 
             <button
