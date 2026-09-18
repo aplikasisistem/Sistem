@@ -16,11 +16,8 @@ import {
   Plus,
   X,
   History,
-  Sparkles,
   ArrowRight,
-  TrendingUp,
   Layers,
-  KeyRound,
   Eye,
   Check,
   RefreshCw,
@@ -701,99 +698,6 @@ export const AutoStockScannerView: React.FC = () => {
     }
   };
 
-  // Menghitung barang yang paling sering di-input masuk gudang berdasarkan stockLogs & master produk
-  const frequentInboundProducts = useMemo(() => {
-    const inboundCounts: Record<string, { count: number; totalQty: number }> = {};
-
-    (stockLogs || []).forEach(log => {
-      const key = log.barcode || log.productId;
-      if (!inboundCounts[key]) {
-        inboundCounts[key] = { count: 0, totalQty: 0 };
-      }
-      inboundCounts[key].count += 1;
-      inboundCounts[key].totalQty += (log.addedQty || 0);
-    });
-
-    const mapped = (products || []).map(prod => {
-      const key = prod.barcode || prod.id;
-      const stats = inboundCounts[key] || { count: 0, totalQty: 0 };
-      return {
-        ...prod,
-        inboundTimes: stats.count,
-        totalInboundQty: stats.totalQty,
-      };
-    });
-
-    // Urutkan berdasarkan frekuensi input terbanyak, lalu total kuantitas, lalu sisa stok
-    mapped.sort((a, b) => {
-      if (b.inboundTimes !== a.inboundTimes) {
-        return b.inboundTimes - a.inboundTimes;
-      }
-      if (b.totalInboundQty !== a.totalInboundQty) {
-        return b.totalInboundQty - a.totalInboundQty;
-      }
-      return (b.stock || 0) - (a.stock || 0);
-    });
-
-    if (mapped.length === 0) {
-      return [
-        {
-          id: 'prod_aqua_600',
-          barcode: '8886008101053',
-          name: 'AQUA Air Mineral Pegunungan 600ml',
-          category: 'Minuman Kemasan',
-          baseUnit: 'botol' as UnitType,
-          stock: 48,
-          inboundTimes: 24,
-          totalInboundQty: 576,
-          costPrice: 2800,
-          retailPrice: 3500,
-          wholesalePrice: 3500,
-          minStock: 10,
-          allowDecimal: false,
-          minWholesaleQty: 1,
-          hasMultiUnit: false,
-        },
-        {
-          id: 'prod_sania_2l',
-          barcode: '8994557315125',
-          name: 'Minyak Goreng Sania Royale 2L Pouch',
-          category: 'Minyak Goreng',
-          baseUnit: 'pouch' as UnitType,
-          stock: 45,
-          inboundTimes: 18,
-          totalInboundQty: 120,
-          costPrice: 32000,
-          retailPrice: 36000,
-          wholesalePrice: 35000,
-          minStock: 10,
-          allowDecimal: false,
-          minWholesaleQty: 1,
-          hasMultiUnit: false,
-        },
-        {
-          id: 'prod_indomie_grg',
-          barcode: '8999999123456',
-          name: 'Indomie Goreng Spesial 85g',
-          category: 'Mi Instan & Pasta',
-          baseUnit: 'pcs' as UnitType,
-          stock: 120,
-          inboundTimes: 15,
-          totalInboundQty: 600,
-          costPrice: 2800,
-          retailPrice: 3100,
-          wholesalePrice: 3000,
-          minStock: 20,
-          allowDecimal: false,
-          minWholesaleQty: 1,
-          hasMultiUnit: false,
-        },
-      ];
-    }
-
-    return mapped.slice(0, 8);
-  }, [stockLogs, products]);
-
   // -------------------------------------------------------------------------
   // RBAC GUARD VIEW: ACCESS DENIED IF NOT WAREHOUSE ADMIN
   // -------------------------------------------------------------------------
@@ -849,50 +753,7 @@ export const AutoStockScannerView: React.FC = () => {
   // WAREHOUSE ADMIN SCANNER INTERFACE
   // -------------------------------------------------------------------------
   return (
-    <div className="max-w-7xl mx-auto p-3 sm:p-6 space-y-6">
-      {/* Header Banner */}
-      <div className="bg-white rounded-2xl border border-slate-200/70 shadow-2xs p-3.5 sm:px-5 sm:py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0 shadow-2xs">
-            <Barcode className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
-                Input Stok Otomatis Gudang
-              </h1>
-              <span className="bg-slate-100 text-slate-600 text-[10px] font-medium px-2 py-0.5 rounded-md flex items-center gap-1">
-                <KeyRound className="w-3 h-3 text-slate-500" />
-                warehouse_admin
-              </span>
-              {isCloudConnected && (
-                <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 text-[10px] font-medium px-2 py-0.5 rounded-md flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Cloud Realtime
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Pemindai barcode otomatis untuk penerimaan barang & penambahan stok gudang
-            </p>
-          </div>
-        </div>
-
-        {/* Petugas Info & Workflow Mode */}
-        <div className="flex items-center gap-2.5 self-start sm:self-auto">
-          <div className="text-right hidden md:block">
-            <p className="text-xs font-semibold text-slate-800">{currentUser?.name}</p>
-            <p className="text-[10px] text-slate-500 font-mono">Admin Gudang</p>
-          </div>
-          <div className="h-6 w-px bg-slate-200 hidden md:block" />
-          <div className="flex items-center gap-1.5 bg-slate-50 rounded-xl border border-slate-200/70 px-2.5 py-1 text-slate-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-teal-500 shrink-0" />
-            <span className="text-[11px] text-slate-500 font-medium">Alur:</span>
-            <span className="text-xs font-semibold text-slate-900">Scan Barcode ➔ Input Qty Manual</span>
-          </div>
-        </div>
-      </div>
-
+    <div className="max-w-7xl mx-auto p-3 sm:p-6 space-y-4">
       {/* Main Grid: Live Camera Scanner (Left) & Manual/Recent Logs (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Continuous Real-Time Camera Scanner */}
@@ -1048,62 +909,6 @@ export const AutoStockScannerView: React.FC = () => {
               </div>
             </div>
           </div>
-
-          {/* Barang Paling Sering Di-Input Masuk Gudang (Minimalist & Sleek) */}
-          <div className="bg-white rounded-2xl border border-slate-200/70 p-4 shadow-2xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 pb-2.5 mb-2.5 border-b border-slate-100">
-              <div>
-                <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-teal-600" />
-                  Barang Paling Sering Di-Input Masuk
-                </h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Klik produk untuk deteksi cepat & isi kuantitas stok manual
-                </p>
-              </div>
-              <span className="self-start sm:self-auto text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full whitespace-nowrap">
-                {frequentInboundProducts.length} Produk Rutin
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {frequentInboundProducts.map((item, idx) => (
-                <button
-                  key={item.id || item.barcode}
-                  type="button"
-                  onClick={() => handleBarcodeDetect(item.barcode, 'manual_barcode')}
-                  className="h-full p-2.5 rounded-xl bg-slate-50/70 hover:bg-white hover:border-teal-300 border border-slate-200/60 text-left transition-all duration-150 shadow-2xs hover:shadow-xs flex flex-col justify-between group cursor-pointer"
-                >
-                  <div>
-                    {/* Top row: Rank badge & barcode */}
-                    <div className="flex items-center justify-between gap-1 mb-1">
-                      <span className="text-[9px] font-bold text-slate-400 group-hover:text-teal-600">
-                        #{idx + 1}
-                      </span>
-                      <span className="font-mono text-[9px] text-slate-400 truncate group-hover:text-slate-600">
-                        {item.barcode}
-                      </span>
-                    </div>
-
-                    {/* Product Name */}
-                    <h4 className="font-semibold text-xs text-slate-800 line-clamp-1 leading-snug group-hover:text-teal-950">
-                      {item.name}
-                    </h4>
-                  </div>
-
-                  {/* Bottom row: Stok and Inbound frequency */}
-                  <div className="mt-2 pt-1.5 border-t border-slate-200/40 flex items-center justify-between text-[10px] text-slate-500">
-                    <span>
-                      Stok: <strong className="text-slate-700">{item.stock}</strong>
-                    </span>
-                    <span className="text-[9px] font-medium text-teal-700 bg-teal-50 px-1 py-0.5 rounded">
-                      {item.inboundTimes > 0 ? `${item.inboundTimes}x` : 'Rutin'}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Right Column: Auto-Focus Manual Input, Scanned Card & Inbound History */}
@@ -1136,9 +941,21 @@ export const AutoStockScannerView: React.FC = () => {
                 <Barcode className="w-3.5 h-3.5 text-teal-600" />
                 Input Barcode / Scanner USB
               </h2>
-              <span className="text-[10px] font-medium text-teal-700 bg-teal-50 border border-teal-200/60 px-2 py-0.5 rounded-full">
-                Auto-Focus Siap Scan
-              </span>
+              <div className="flex items-center gap-2">
+                <label className="cursor-pointer text-[10px] text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200/70 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 transition">
+                  <Upload className="w-2.5 h-2.5" />
+                  <span>Foto Barcode</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoFileUpload}
+                    className="hidden"
+                  />
+                </label>
+                <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full hidden sm:inline-block">
+                  Auto-Focus Siap Scan
+                </span>
+              </div>
             </div>
 
             <form onSubmit={handleManualSubmit} className="space-y-2">
@@ -1167,51 +984,6 @@ export const AutoStockScannerView: React.FC = () => {
                 </button>
               </div>
             </form>
-
-            {/* Quick Test Barcode Pills */}
-            <div className="pt-1">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-medium text-slate-400">Pintasan Uji Barcode:</span>
-                <label className="cursor-pointer text-[10px] text-teal-600 hover:text-teal-700 font-medium flex items-center gap-1">
-                  <Upload className="w-2.5 h-2.5" />
-                  <span>Foto Barcode</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoFileUpload}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => handleBarcodeDetect('8886008101053', 'manual_barcode')}
-                  className="px-2 py-1 rounded-lg bg-teal-50/80 hover:bg-teal-100 border border-teal-200/70 text-[10px] font-semibold text-teal-900 transition flex items-center gap-1"
-                >
-                  <span>💧 AQUA 600ml</span>
-                  <span className="font-mono text-[9px] text-teal-600">8886008101053</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleBarcodeDetect('8991007', 'manual_barcode')}
-                  className="px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200/70 text-[10px] font-semibold text-amber-900 transition flex items-center gap-1"
-                >
-                  <Scale className="w-2.5 h-2.5 text-amber-600" />
-                  <span>Telur Curah (Desimal)</span>
-                  <span className="font-mono text-[9px] text-amber-600">8991007</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleBarcodeDetect('8991001', 'manual_barcode')}
-                  className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/70 text-[10px] font-semibold text-emerald-900 transition flex items-center gap-1"
-                >
-                  <Scale className="w-2.5 h-2.5 text-emerald-600" />
-                  <span>Beras (Desimal)</span>
-                  <span className="font-mono text-[9px] text-emerald-600">8991001</span>
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* Card Hasil Deteksi Otomatis (Menampilkan 5 Fitur Permintaan User) */}
